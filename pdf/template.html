@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        /* PDF専用CSS（印刷向けスタイル） */
+        @page {
+            size: A4;
+            margin: 20mm 25mm;  /* 上下20mm、左右25mm（左余白を確保） */
+        }
+        
+        html {
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+        
+        * {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            font-family: "{{ font_family }}", "HeiseiKakuGo-W5", "HeiseiMin-W3", sans-serif !important;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            color: #333;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+        }
+        
+        /* すべての要素のフォントサイズと行間を統一 */
+        * {
+            font-size: inherit;
+            line-height: 1.6;  /* 全体の行間を1.6に統一 */
+        }
+        
+        /* すべてのコンテナ要素に幅制限を設定 */
+        div, section, article {
+            max-width: 100%;
+            overflow: hidden;
+        }
+        
+        /* 改ページ制御 */
+        .page-break {
+            page-break-before: always;
+        }
+        .page-break-after {
+            page-break-after: always;
+        }
+        .no-break {
+            page-break-inside: avoid;
+        }
+        
+        /* タイトル（中央寄せのみ許可） */
+        .main-title {
+            font-size: 20pt;  /* タイトル20pt（統一） */
+            font-weight: bold;
+            text-align: center;
+            color: #2c5f2d;
+            margin: 0 0 20px 0;
+            padding: 0;
+            line-height: 1.6;  /* 行間1.6（統一） */
+        }
+        
+        /* 見出し（左揃え） */
+        h2 {
+            font-size: 16pt;  /* 見出し16pt（統一） */
+            font-weight: bold;
+            margin: 0 0 12px 0;  /* 上余白0、下余白12px */
+            padding: 30px 0 0 0;  /* 上パディング30px（前の文章との間隔を確保） */
+            color: #2c5f2d;
+            border-bottom: 2px solid #2c5f2d;
+            padding-bottom: 8px;
+            text-align: left;  /* 左揃え */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-all;  /* 日本語の場合、break-allの方が効果的 */
+            white-space: normal;  /* 改行を許可 */
+            max-width: 100%;
+            page-break-after: avoid;  /* 見出しの直後に改ページしない */
+            page-break-before: auto;  /* 見出しの前で改ページを許可 */
+        }
+        
+        h3 {
+            font-size: 14pt;  /* 見出し14pt（統一） */
+            font-weight: bold;
+            margin: 0 0 8px 0;  /* 上余白0、下余白8px */
+            padding: 24px 0 0 0;  /* 上パディング24px（前の文章との間隔を確保） */
+            color: #2c5f2d;
+            text-align: left;  /* 左揃え */
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-all;  /* 日本語の場合、break-allの方が効果的 */
+            white-space: normal;  /* 改行を許可 */
+            max-width: 100%;
+            line-height: 1.6;  /* 行間1.6（統一） */
+            page-break-after: avoid;  /* 見出しの直後に改ページしない */
+            page-break-before: auto;  /* 見出しの前で改ページを許可 */
+        }
+        
+        /* 本文 - 日本語の折り返しを確実にする */
+        p {
+            margin: 0 0 12px 0;
+            padding: 0;
+            text-align: left;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            /* xhtml2pdfで日本語を折り返すための設定 */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+            page-break-inside: avoid;  /* 段落内で改ページしない */
+        }
+        
+        /* 箇条書き */
+        ul, ol {
+            margin: 8px 0 12px 0;
+            padding-left: 24px;
+            line-height: 1.6;  /* 行間1.6（統一） */
+            font-size: 11pt;  /* 本文11pt（統一） */
+        }
+        
+        li {
+            margin: 4px 0;
+            text-align: left;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        /* 条件ボックス（枠で囲う） */
+        .condition-box {
+            border: 2px solid #2c5f2d;
+            border-radius: 4px;
+            padding: 16px;
+            margin: 16px 0;
+            background-color: #f9f9f9;
+        }
+        
+        .condition-row {
+            display: block;
+            margin: 8px 0;
+            padding: 4px 0;
+        }
+        
+        .condition-label {
+            font-weight: bold;
+            display: inline-block;
+            width: 100px;
+            text-align: left;
+        }
+        
+        .condition-value {
+            display: inline-block;
+            text-align: left;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-all;  /* 日本語の場合、break-allの方が効果的 */
+            white-space: normal;  /* 改行を許可 */
+            max-width: calc(100% - 120px);  /* ラベルの幅を考慮 */
+        }
+        
+        /* サマリーテーブル */
+        .summary-table {
+            width: 100%;
+            max-width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            table-layout: fixed !important;  /* テーブルレイアウトを固定（!importantで強制） */
+            overflow: hidden;
+        }
+        
+        .summary-table th,
+        .summary-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+            overflow: hidden;
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        /* テーブルセルの幅を均等に配分（4列すべて25% - xhtml2pdf用に明示的に指定） */
+        .summary-table th:first-child,
+        .summary-table td:first-child {
+            width: 25% !important;  /* 成分列 */
+            min-width: 25% !important;
+            max-width: 25% !important;
+        }
+        
+        .summary-table th:nth-child(2),
+        .summary-table td:nth-child(2) {
+            width: 25% !important;  /* 年間施肥量列 */
+            min-width: 25% !important;
+            max-width: 25% !important;
+        }
+        
+        .summary-table th:nth-child(3),
+        .summary-table td:nth-child(3) {
+            width: 25% !important;  /* MSLN列 */
+            min-width: 25% !important;
+            max-width: 25% !important;
+        }
+        
+        .summary-table th:nth-child(4),
+        .summary-table td:nth-child(4) {
+            width: 25% !important;  /* SLAN列 */
+            min-width: 25% !important;
+            max-width: 25% !important;
+        }
+        
+        .summary-table th {
+            background-color: #2c5f2d;
+            color: white;
+            font-weight: bold;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+        }
+        
+        .summary-table td {
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+        }
+        
+        .summary-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        /* コメントボックス */
+        .comment-box {
+            background-color: #f0f8f0;
+            border-left: 4px solid #2c5f2d;
+            padding: 16px;
+            margin: 24px 0;  /* 上下余白24px（前後の要素との間隔を確保） */
+            text-align: left;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+            page-break-inside: avoid;  /* ボックス内で改ページしない */
+        }
+        
+        .comment-box p {
+            width: 100%;
+            max-width: 100%;
+            margin: 0 0 12px 0;  /* 段落間12px（統一） */
+            padding: 0;
+            overflow: hidden;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        .comment-box p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .comment-box ul {
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        .comment-box li {
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        /* グラフコンテナ */
+        .graph-container {
+            text-align: center;
+            margin: 20px 0;  /* グラフ前後に余白 */
+            page-break-inside: avoid;
+        }
+        
+        .graph-container img {
+            max-width: 100%;
+            height: auto;
+        }
+        
+        /* 説明文（簡潔） */
+        .graph-explanation {
+            margin: 24px 0;  /* 上下余白24px（前後の要素との間隔を確保） */
+            padding: 12px;
+            background-color: #f9f9f9;
+            border-left: 3px solid #2c5f2d;
+            text-align: left;  /* 左揃え */
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            width: 100%;
+            max-width: 100%;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-all;  /* 日本語の場合、break-allの方が効果的 */
+            white-space: normal;  /* 改行を許可 */
+            overflow: hidden;  /* はみ出しを防ぐ */
+            box-sizing: border-box;
+            page-break-inside: avoid;  /* 説明文内で改ページしない */
+        }
+        
+        .graph-explanation p {
+            width: 100%;
+            max-width: 100%;
+            margin: 0 0 12px 0;  /* 段落間12px（統一） */
+            padding: 0;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-all;
+            white-space: normal;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        
+        .graph-explanation p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* セクション（情報の塊） */
+        .section {
+            margin: 24px 0;  /* セクション間24px（前の要素との間隔を確保） */
+            padding: 0;
+            page-break-inside: avoid;  /* セクション内で改ページしない */
+        }
+        
+        /* ロジック説明セクション */
+        .logic-section {
+            margin: 24px 0 16px 0;  /* 上余白24px、下余白16px（前のセクションとの間隔を確保） */
+            padding: 0;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            page-break-inside: avoid;  /* セクション内で改ページしない */
+        }
+        
+        .logic-section h3 {
+            font-size: 14pt;  /* 見出し14pt（統一） */
+            margin: 0 0 8px 0;  /* 上余白0、下余白8px */
+            padding: 0;  /* .logic-sectionのmargin-topで確保されるため、h3のpaddingは0 */
+            color: #2c5f2d;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+            page-break-after: avoid;  /* 見出しの直後に改ページしない */
+        }
+        
+        .logic-section p {
+            margin: 0 0 12px 0;  /* 段落間12px（統一） */
+            padding: 0;
+            text-align: left;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        .logic-section ul {
+            width: 100%;
+            max-width: 100%;
+            margin: 0 0 12px 0;  /* 段落間12px（統一） */
+            padding-left: 24px;
+            overflow: hidden;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        .logic-section li {
+            width: 100%;
+            max-width: 100%;
+            margin: 0;  /* 行間はline-heightで統一 */
+            padding: 0;
+            overflow: hidden;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        /* 入力値一覧（監査用） */
+        .input-list {
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            margin: 12px 0;
+        }
+        
+        .input-list table {
+            width: 100%;
+            max-width: 100%;
+            border-collapse: collapse;
+            margin: 8px 0;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            table-layout: fixed;  /* テーブルレイアウトを固定して折り返しを有効にする */
+            overflow: hidden;
+        }
+        
+        .input-list th,
+        .input-list td {
+            border: 1px solid #ddd;
+            padding: 6px;
+            text-align: left;
+            overflow: hidden;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            word-break: break-all;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+        
+        .input-list th {
+            background-color: #e0e0e0;
+            font-weight: bold;
+        }
+        
+        .input-list tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        /* 注記 */
+        .note {
+            background-color: #fff9e6;
+            border-left: 4px solid #ffa500;
+            padding: 12px;
+            margin: 16px 0;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+            text-align: left;  /* 左揃え */
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-all;  /* 日本語の場合、break-allの方が効果的 */
+            white-space: normal;  /* 改行を許可 */
+            max-width: 100%;
+        }
+        
+        .note p {
+            margin: 0 0 12px 0;  /* 段落間12px（統一） */
+            padding: 0;
+            font-size: 11pt;  /* 本文11pt（統一） */
+            line-height: 1.6;  /* 行間1.6（統一） */
+        }
+        
+        .note p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* 強調テキスト */
+        .emphasis {
+            font-weight: bold;
+            color: #2c5f2d;
+        }
+    </style>
+</head>
+<body>
+    <!-- Page 1: 施肥設計サマリー -->
+    <div class="page-break">
+        <h1 class="main-title">芝しごと・施肥設計ナビ</h1>
+        
+        <div class="condition-box no-break">
+            <h3 style="margin-top: 0; margin-bottom: 12px;">対象条件</h3>
+            <div class="condition-row">
+                <span class="condition-label">芝種区分：</span>
+                <span class="condition-value">{{ input_data.grass_type }}</span>
+            </div>
+            <div class="condition-row">
+                <span class="condition-label">利用形態：</span>
+                <span class="condition-value">{{ input_data.usage_type }}</span>
+            </div>
+            <div class="condition-row">
+                <span class="condition-label">管理強度：</span>
+                <span class="condition-value">{{ input_data.management_intensity }}</span>
+            </div>
+            <div class="condition-row">
+                <span class="condition-label">PGR強度：</span>
+                <span class="condition-value">{{ input_data.pgr_intensity }}</span>
+            </div>
+            <div class="condition-row">
+                <span class="condition-label">施肥スタンス：</span>
+                <span class="condition-value">{{ input_data.fertilizer_stance }}</span>
+            </div>
+            <div class="condition-row">
+                <span class="condition-label">作成日：</span>
+                <span class="condition-value">{{ creation_date }}</span>
+            </div>
+        </div>
+        
+        <div class="section">
+            <br /><br /><br />
+            <h2>年間施肥量（N, P, K）</h2>
+            <table class="summary-table" style="table-layout: fixed; width: 100%;">
+                <colgroup>
+                    <col style="width: 25%;" />
+                    <col style="width: 25%;" />
+                    <col style="width: 25%;" />
+                    <col style="width: 25%;" />
+                </colgroup>
+                <tr>
+                    <th style="width: 25%;">成分</th>
+                    <th style="width: 25%;">年間施肥量（g/m²）</th>
+                    <th style="width: 25%;">MSLN（g/m²）</th>
+                    <th style="width: 25%;">SLAN（g/m²）</th>
+                </tr>
+                <tr>
+                    <td style="width: 25%;">N（窒素）</td>
+                    <td class="emphasis" style="width: 25%;">{{ "%.1f"|format(calculation_results.N.annual_value / 10) }}</td>
+                    <td style="width: 25%;">{{ "%.1f"|format(calculation_results.N.msln / 10) }}</td>
+                    <td style="width: 25%;">{{ "%.1f"|format(calculation_results.N.slan / 10) }}</td>
+                </tr>
+                <tr>
+                    <td style="width: 25%;">P（リン酸）</td>
+                    <td class="emphasis" style="width: 25%;">{{ "%.1f"|format(calculation_results.P.annual_value / 10) }}</td>
+                    <td style="width: 25%;">{{ "%.1f"|format(calculation_results.P.msln / 10) }}</td>
+                    <td style="width: 25%;">{{ "%.1f"|format(calculation_results.P.slan / 10) }}</td>
+                </tr>
+                <tr>
+                    <td style="width: 25%;">K（カリウム）</td>
+                    <td class="emphasis" style="width: 25%;">{{ "%.1f"|format(calculation_results.K.annual_value / 10) }}</td>
+                    <td style="width: 25%;">{{ "%.1f"|format(calculation_results.K.msln / 10) }}</td>
+                    <td style="width: 25%;">{{ "%.1f"|format(calculation_results.K.slan / 10) }}</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="comment-box">
+            <p><strong>本設計について</strong></p>
+            <p>本設計は以下の考え方に基づき算出されています：</p>
+            <ul>
+                <li>年間施肥量はMSLN（Minimum Sufficient Level of Nitrogen）<br />〜SLAN（Sufficient Level of Available Nitrogen）の範囲内で決定</li>
+                <li>月別配分は、Growth Potential（GP）、季節補正係数、<br />管理強度、PGR制御を組み合わせて算出</li>
+                <li>土壌診断値に基づき、P, K, Ca, Mgは適切に補正</li>
+            </ul>
+        </div>
+    </div>
+    
+    <!-- Page 2: 月別施肥配分 × GP -->
+    <div class="page-break">
+        <br /><br /><br />
+        <h2>月別施肥配分 × Growth Potential</h2>
+        
+        {% if has_graph %}
+        <div class="graph-container no-break">
+            <img src="{{ graph_image }}" alt="年間GP × 施肥配分グラフ" />
+        </div>
+        {% else %}
+        <div class="note">
+            <p><strong>注意：</strong>グラフ画像の生成にはkaleidoパッケージが必要です。グラフなしでPDFを生成しました。</p>
+            <p>グラフを含める場合は、以下のコマンドでkaleidoをインストールしてください：</p>
+            <p><code>pip install -U kaleido</code></p>
+        </div>
+        {% endif %}
+        
+        <br /><br />
+        
+        <div class="graph-explanation">
+            <p><strong>配分の考え方</strong></p>
+            <p>本配分は、年間施肥量を成長能（Growth Potential）、<br />季節補正、管理強度、PGR制御により月別に再配分したものです。</p>
+            <p>特にゴルフグリーンでは、年間施肥量の約6〜7割を<br />梅雨入り前までに配分する考え方を反映しています。</p>
+        </div>
+    </div>
+    
+    <!-- Page 3: 設計ロジック説明 -->
+    <div class="page-break">
+        <br /><br /><br />
+        <h2>設計ロジック説明</h2>
+        
+        <div class="logic-section">
+            <br /><br />
+            <h3>MSLN / SLANとは</h3>
+            <br />
+            <p>MSLN（Minimum Sufficient Level of Nitrogen）は、<br />芝の健全な生育を維持するための最小限の窒素量です。</p>
+            <p>SLAN（Sufficient Level of Available Nitrogen）は、<br />芝が最大限の生育を実現できる窒素量です。</p>
+            <p>本設計では、この範囲内で施肥スタンス<br />（下限寄り／中央／上限寄り）に応じて<br />年間施肥量を決定しています。</p>
+        </div>
+        
+        <div class="logic-section">
+            <br /><br />
+            <h3>本アプリの立ち位置</h3>
+            <br />
+            <p>本アプリは、土壌診断値と管理方針をもとに<br />年間施肥設計を算出する判断支援ツールです。</p>
+            <p>実際の施肥計画を立案する際は、以下の点を考慮してください：</p>
+            <ul>
+                <li>本設計は一般的な基準に基づく計算結果です</li>
+                <li>実際の土壌条件、気象条件、芝生の状態を<br />総合的に判断してください</li>
+                <li>必要に応じて専門家の意見を求めることを推奨します</li>
+            </ul>
+        </div>
+        
+        <div class="logic-section">
+            <br /><br />
+            <h3>春重点配分の考え方</h3>
+            <p>ゴルフ場管理では、夏期高温前に根量・貯蔵養分を確保するため、<br />年間施肥量の大部分を春〜初夏に前倒しする管理が一般的です。</p>
+            <p>本設計では、Growth Potential（GP）を基準としつつ、<br />季節補正係数を用いて「春先重点・夏期抑制」の施肥戦略を反映しています。</p>
+            <p>管理強度が高いほど、春先に生育基盤を作るため<br />施肥配分のピークが強調されます。</p>
+        </div>
+        
+        <div class="logic-section">
+            <br /><br />
+            <h3>GP制御の意味</h3>
+            <br />
+            <p>GP（Growth Potential）は<br />芝が実際に養分を利用できる能力を示します。</p>
+            <p>本設計では、GPが低い時期は施肥を抑え、<br />GPが過剰に高い時期は生育暴走を防ぐため制御を行っています。</p>
+            <p>GPを「アクセル」ではなく「上限リミッター」として使用することで、<br />生理的に適切な施肥量を維持します。</p>
+            <br />
+            <p><strong>注意：</strong>本GPは、標準的な気候パターンをもとに<br />緯度差による平均気温補正を行った推定値です。</p>
+        </div>
+        
+        <div class="logic-section">
+            <br /><br />
+            <h3>PGR連動の意味</h3>
+            <br />
+            <p>植物成長調整剤（PGR）を使用すると、<br />芝の生育速度と刈粕量が低下します。</p>
+            <p>本設計では、PGR使用強度に応じて、<br />芝が実際に吸収可能な養分量へ施肥量を調整しています。</p>
+            <p>特にGPが高い時期ほどPGRの影響は大きく、<br />真夏の施肥量を抑制する効果があります。</p>
+        </div>
+    </div>
+    
+    <!-- Page 4: 入力値一覧（監査用） -->
+    <div class="page-break">
+        <br /><br /><br />
+        <h2>入力値一覧（参考資料）</h2>
+        
+        <div class="input-list">
+            <br /><br />
+            <h3>基本条件</h3>
+            <table>
+                <tr>
+                    <th>項目</th>
+                    <th>値</th>
+                </tr>
+                <tr>
+                    <td>芝種区分</td>
+                    <td>{{ input_data.grass_type }}</td>
+                </tr>
+                <tr>
+                    <td>利用形態</td>
+                    <td>{{ input_data.usage_type }}</td>
+                </tr>
+                <tr>
+                    <td>管理強度</td>
+                    <td>{{ input_data.management_intensity }}</td>
+                </tr>
+                {% if input_data.management_intensity_description %}
+                <tr>
+                    <td colspan="2" style="font-size: 10pt; padding-top: 0; padding-bottom: 8px; line-height: 1.6;">
+                        {{ input_data.management_intensity_description|replace('\n', '<br />')|safe }}
+                    </td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <td>PGR（植物成長調整剤）</td>
+                    <td>{{ input_data.pgr_intensity }}</td>
+                </tr>
+                {% if input_data.pgr_intensity_description %}
+                <tr>
+                    <td colspan="2" style="font-size: 10pt; padding-top: 0; padding-bottom: 8px; line-height: 1.6;">
+                        {{ input_data.pgr_intensity_description|replace('\n', '<br />')|safe }}
+                    </td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <td>配分方法</td>
+                    <td>{{ input_data.distribution_stance }}</td>
+                </tr>
+                {% if input_data.distribution_stance_description %}
+                <tr>
+                    <td colspan="2" style="font-size: 10pt; padding-top: 0; padding-bottom: 8px; line-height: 1.6;">
+                        {{ input_data.distribution_stance_description|replace('\n', '<br />')|safe }}
+                    </td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <td>施肥スタンス</td>
+                    <td>{{ input_data.fertilizer_stance }}</td>
+                </tr>
+                {% if input_data.latitude and input_data.longitude %}
+                <tr>
+                    <td>緯度</td>
+                    <td>{{ "%.6f"|format(input_data.latitude) }}</td>
+                </tr>
+                <tr>
+                    <td>経度</td>
+                    <td>{{ "%.6f"|format(input_data.longitude) }}</td>
+                </tr>
+                {% endif %}
+            </table>
+        </div>
+        
+        <div class="input-list">
+            <br /><br />
+            <h3>土壌診断値</h3>
+            <table>
+                <tr>
+                    <th>成分</th>
+                    <th>診断値（mg/100g）</th>
+                </tr>
+                <tr>
+                    <td>P（リン酸）</td>
+                    <td>{{ input_data["soil_values"]["P"] }}</td>
+                </tr>
+                <tr>
+                    <td>K（カリウム）</td>
+                    <td>{{ input_data["soil_values"]["K"] }}</td>
+                </tr>
+                <tr>
+                    <td>Ca（カルシウム）</td>
+                    <td>{{ input_data["soil_values"]["Ca"] }}</td>
+                </tr>
+                <tr>
+                    <td>Mg（マグネシウム）</td>
+                    <td>{{ input_data["soil_values"]["Mg"] }}</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="input-list">
+            <br /><br />
+            <h3>年間施肥設計結果（全成分）</h3>
+            <table>
+                <tr>
+                    <th>成分</th>
+                    <th>年間量（g/m²）</th>
+                    <th>MSLN（g/m²）</th>
+                    <th>SLAN（g/m²）</th>
+                    <th>位置</th>
+                </tr>
+                <tr>
+                    <td>N（窒素）</td>
+                    <td>{{ "%.1f"|format(calculation_results.N.annual_value / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.N.msln / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.N.slan / 10) }}</td>
+                    <td>{{ calculation_results.N.position }}</td>
+                </tr>
+                <tr>
+                    <td>P（リン酸）</td>
+                    <td>{{ "%.1f"|format(calculation_results.P.annual_value / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.P.msln / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.P.slan / 10) }}</td>
+                    <td>{{ calculation_results.P.position }}</td>
+                </tr>
+                <tr>
+                    <td>K（カリウム）</td>
+                    <td>{{ "%.1f"|format(calculation_results.K.annual_value / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.K.msln / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.K.slan / 10) }}</td>
+                    <td>{{ calculation_results.K.position }}</td>
+                </tr>
+                <tr>
+                    <td>Ca（カルシウム）</td>
+                    <td>{{ "%.1f"|format(calculation_results.Ca.annual_value / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.Ca.msln / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.Ca.slan / 10) }}</td>
+                    <td>{{ calculation_results.Ca.position }}</td>
+                </tr>
+                <tr>
+                    <td>Mg（マグネシウム）</td>
+                    <td>{{ "%.1f"|format(calculation_results.Mg.annual_value / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.Mg.msln / 10) }}</td>
+                    <td>{{ "%.1f"|format(calculation_results.Mg.slan / 10) }}</td>
+                    <td>{{ calculation_results.Mg.position }}</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="input-list">
+            <br /><br />
+            <h3>月別施肥配分量（g/m²）</h3>
+            <table>
+                <tr>
+                    <th>月</th>
+                    <th>N</th>
+                    <th>P</th>
+                    <th>K</th>
+                    <th>Ca</th>
+                    <th>Mg</th>
+                </tr>
+                {% for data in monthly_fertilizer_data %}
+                <tr>
+                    <td>{{ data.month }}</td>
+                    <td>{{ "%.3f"|format(data.n) }}</td>
+                    <td>{{ "%.3f"|format(data.p) }}</td>
+                    <td>{{ "%.3f"|format(data.k) }}</td>
+                    <td>{{ "%.3f"|format(data.ca) }}</td>
+                    <td>{{ "%.3f"|format(data.mg) }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+</body>
+</html>
