@@ -23,7 +23,13 @@ from logic import (
     calculate_fertilizer_requirements,
 )
 from logic.gp import get_monthly_n_distribution
-from pdf import generate_pdf
+# PDF機能を一時的に無効化（Streamlit Community Cloud対応）
+try:
+    from pdf import generate_pdf
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+    generate_pdf = None
 
 
 # ページ設定
@@ -427,7 +433,7 @@ if not has_results:
         
         4. **計算実行**
            - 「計算実行」ボタンをクリックすると、年間施肥設計が表示されます
-           - 必要に応じてPDFとして出力できます
+           - 計算結果は画面で確認できます
         """)
 else:
     # 計算後：単一カラムレイアウト（全幅表示）
@@ -862,53 +868,56 @@ else:
         
         st.markdown("---")
         
-        # PDF出力
-        st.header("📄 PDF出力")
-        
-        if st.button("📥 施肥設計PDFを生成", type="primary", use_container_width=True):
-            with st.spinner("PDFを生成中..."):
-                try:
-                    # セッションからデータを取得
-                    pdf_results = st.session_state.get("results", results)
-                    pdf_gp_values = st.session_state.get("gp_values", gp_values)
-                    pdf_gp_dict = st.session_state.get("gp_dict", {"main": gp_values})
-                    pdf_monthly_n = st.session_state.get("monthly_n", monthly_n)
-                    
-                    # 一時ファイルにPDFを生成
-                    pdf_path = generate_pdf(
-                        input_data=st.session_state["input_data"],
-                        calculation_results=pdf_results,
-                        gp_values=pdf_gp_values,
-                        gp_dict=pdf_gp_dict,
-                        monthly_n=pdf_monthly_n,
-                    )
-                    
-                    # PDFファイルを読み込み
-                    with open(pdf_path, "rb") as pdf_file:
-                        pdf_bytes = pdf_file.read()
-                    
-                    # ダウンロードボタン
-                    st.download_button(
-                        label="📥 PDFをダウンロード",
-                        data=pdf_bytes,
-                        file_name=f"施肥設計_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                    )
-                    
-                    # 一時ファイルを削除
-                    os.unlink(pdf_path)
-                    
-                    st.success("✅ PDFが生成されました")
-                    
-                    # kaleidoがインストールされていない場合の警告
-                    try:
-                        import kaleido
-                    except ImportError:
-                        st.warning("⚠️ グラフ画像を含めるには、kaleidoパッケージが必要です。以下のコマンドでインストールしてください：\n```bash\npip install -U kaleido\n```")
-                        
-                except Exception as e:
-                    st.error(f"❌ PDF生成エラー: {str(e)}")
-                    if "kaleido" in str(e).lower():
-                        st.info("💡 **解決方法**: 以下のコマンドでkaleidoをインストールしてください：\n```bash\npip install -U kaleido\n```")
-                    st.exception(e)
+        # PDF出力（一時的に無効化：Streamlit Community Cloud対応）
+        # st.header("📄 PDF出力")
+        # 
+        # if PDF_AVAILABLE and generate_pdf:
+        #     if st.button("📥 施肥設計PDFを生成", type="primary", use_container_width=True):
+        #         with st.spinner("PDFを生成中..."):
+        #             try:
+        #                 # セッションからデータを取得
+        #                 pdf_results = st.session_state.get("results", results)
+        #                 pdf_gp_values = st.session_state.get("gp_values", gp_values)
+        #                 pdf_gp_dict = st.session_state.get("gp_dict", {"main": gp_values})
+        #                 pdf_monthly_n = st.session_state.get("monthly_n", monthly_n)
+        #                 
+        #                 # 一時ファイルにPDFを生成
+        #                 pdf_path = generate_pdf(
+        #                     input_data=st.session_state["input_data"],
+        #                     calculation_results=pdf_results,
+        #                     gp_values=pdf_gp_values,
+        #                     gp_dict=pdf_gp_dict,
+        #                     monthly_n=pdf_monthly_n,
+        #                 )
+        #                 
+        #                 # PDFファイルを読み込み
+        #                 with open(pdf_path, "rb") as pdf_file:
+        #                     pdf_bytes = pdf_file.read()
+        #                 
+        #                 # ダウンロードボタン
+        #                 st.download_button(
+        #                     label="📥 PDFをダウンロード",
+        #                     data=pdf_bytes,
+        #                     file_name=f"施肥設計_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+        #                     mime="application/pdf",
+        #                     use_container_width=True,
+        #                 )
+        #                 
+        #                 # 一時ファイルを削除
+        #                 os.unlink(pdf_path)
+        #                 
+        #                 st.success("✅ PDFが生成されました")
+        #                 
+        #                 # kaleidoがインストールされていない場合の警告
+        #                 try:
+        #                     import kaleido
+        #                 except ImportError:
+        #                     st.warning("⚠️ グラフ画像を含めるには、kaleidoパッケージが必要です。以下のコマンドでインストールしてください：\n```bash\npip install -U kaleido\n```")
+        #                     
+        #             except Exception as e:
+        #                 st.error(f"❌ PDF生成エラー: {str(e)}")
+        #                 if "kaleido" in str(e).lower():
+        #                     st.info("💡 **解決方法**: 以下のコマンドでkaleidoをインストールしてください：\n```bash\npip install -U kaleido\n```")
+        #                 st.exception(e)
+        # else:
+        #     st.info("ℹ️ PDF出力機能は現在利用できません（Streamlit Community Cloud対応のため一時的に無効化されています）")

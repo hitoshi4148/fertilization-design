@@ -9,10 +9,11 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
 from jinja2 import Template
-from xhtml2pdf import pisa
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+# PDF機能を一時的に無効化（Streamlit Community Cloud対応）
+# from xhtml2pdf import pisa
+# from reportlab.pdfbase import pdfmetrics
+# from reportlab.pdfbase.ttfonts import TTFont
+# from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import platform
@@ -251,59 +252,62 @@ def _create_graph_image(
         raise
 
 
+# PDF機能を一時的に無効化（Streamlit Community Cloud対応）
 def _register_japanese_fonts():
     """
     Windows環境で日本語フォントを登録
     登録されたフォント名を返す
     """
-    registered_font_name = None
-    
-    if platform.system() != "Windows":
-        # Windows以外の場合はCIDフォントを試す
-        try:
-            pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
-            registered_font_name = "HeiseiKakuGo-W5"
-        except Exception:
-            pass
-        return registered_font_name
-    
-    # Windowsの標準日本語フォントパス（複数の候補を試す）
-    font_paths = [
-        (r"C:\Windows\Fonts\msgothic.ttc", "JapaneseFont", 0),
-        (r"C:\Windows\Fonts\msmincho.ttc", "JapaneseFont", 0),
-        (r"C:\Windows\Fonts\meiryo.ttc", "JapaneseFont", 0),
-        (r"C:\Windows\Fonts\yugothic.ttf", "JapaneseFont", None),
-        (r"C:\Windows\Fonts\msgothic.ttc", "msgothic", 0),
-        (r"C:\Windows\Fonts\msmincho.ttc", "msmincho", 0),
-        (r"C:\Windows\Fonts\meiryo.ttc", "meiryo", 0),
-    ]
-    
-    # 利用可能なフォントを登録
-    for font_path, font_name, subfont_index in font_paths:
-        if os.path.exists(font_path):
-            try:
-                if font_path.endswith(".ttc") and subfont_index is not None:
-                    pdfmetrics.registerFont(TTFont(font_name, font_path, subfontIndex=subfont_index))
-                else:
-                    pdfmetrics.registerFont(TTFont(font_name, font_path))
-                registered_font_name = font_name
-                break  # 最初に登録できたフォントを使用
-            except Exception as e:
-                continue
-    
-    # フォントが登録できなかった場合は、ReportLabのデフォルトCIDフォントを使用
-    if not registered_font_name:
-        try:
-            pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
-            registered_font_name = "HeiseiKakuGo-W5"
-        except Exception:
-            try:
-                pdfmetrics.registerFont(UnicodeCIDFont("HeiseiMin-W3"))
-                registered_font_name = "HeiseiMin-W3"
-            except Exception:
-                pass
-    
-    return registered_font_name
+    # PDF機能が無効化されているため、ダミー値を返す
+    return None
+    # registered_font_name = None
+    # 
+    # if platform.system() != "Windows":
+    #     # Windows以外の場合はCIDフォントを試す
+    #     try:
+    #         pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+    #         registered_font_name = "HeiseiKakuGo-W5"
+    #     except Exception:
+    #         pass
+    #     return registered_font_name
+    # 
+    # # Windowsの標準日本語フォントパス（複数の候補を試す）
+    # font_paths = [
+    #     (r"C:\Windows\Fonts\msgothic.ttc", "JapaneseFont", 0),
+    #     (r"C:\Windows\Fonts\msmincho.ttc", "JapaneseFont", 0),
+    #     (r"C:\Windows\Fonts\meiryo.ttc", "JapaneseFont", 0),
+    #     (r"C:\Windows\Fonts\yugothic.ttf", "JapaneseFont", None),
+    #     (r"C:\Windows\Fonts\msgothic.ttc", "msgothic", 0),
+    #     (r"C:\Windows\Fonts\msmincho.ttc", "msmincho", 0),
+    #     (r"C:\Windows\Fonts\meiryo.ttc", "meiryo", 0),
+    # ]
+    # 
+    # # 利用可能なフォントを登録
+    # for font_path, font_name, subfont_index in font_paths:
+    #     if os.path.exists(font_path):
+    #         try:
+    #             if font_path.endswith(".ttc") and subfont_index is not None:
+    #                 pdfmetrics.registerFont(TTFont(font_name, font_path, subfontIndex=subfont_index))
+    #             else:
+    #                 pdfmetrics.registerFont(TTFont(font_name, font_path))
+    #             registered_font_name = font_name
+    #             break  # 最初に登録できたフォントを使用
+    #         except Exception as e:
+    #             continue
+    # 
+    # # フォントが登録できなかった場合は、ReportLabのデフォルトCIDフォントを使用
+    # if not registered_font_name:
+    #     try:
+    #         pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+    #         registered_font_name = "HeiseiKakuGo-W5"
+    #     except Exception:
+    #         try:
+    #             pdfmetrics.registerFont(UnicodeCIDFont("HeiseiMin-W3"))
+    #             registered_font_name = "HeiseiMin-W3"
+    #         except Exception:
+    #             pass
+    # 
+    # return registered_font_name
 
 
 def generate_pdf(
@@ -406,72 +410,76 @@ def generate_pdf(
         font_family=font_family,
     )
     
+    # PDF機能を一時的に無効化（Streamlit Community Cloud対応）
     # PDFを生成
-    if output_path is None:
-        output_path = tempfile.mktemp(suffix=".pdf")
+    # if output_path is None:
+    #     output_path = tempfile.mktemp(suffix=".pdf")
+    # 
+    #     # xhtml2pdfでPDFを生成
+    #     with open(output_path, "wb") as pdf_file:
+    #         # CSSでフォントを明示的に指定（PDF出力用の追加設定）
+    #         # xhtml2pdfではmm単位が確実に機能する
+    #         # 左余白を確保しつつ、日本語の折り返しを確実にする
+    #         css_content = f"""
+    #         @page {{
+    #             size: A4;
+    #             margin: 20mm 25mm;
+    #         }}
+    #         * {{
+    #             font-family: "{font_family}", "HeiseiKakuGo-W5", "HeiseiMin-W3", sans-serif !important;
+    #             box-sizing: border-box;
+    #         }}
+    #         html {{
+    #             width: 100%;
+    #             margin: 0;
+    #             padding: 0;
+    #             overflow-x: hidden;
+    #         }}
+    #         body {{
+    #             font-family: "{font_family}", "HeiseiKakuGo-W5", "HeiseiMin-W3", sans-serif !important;
+    #             width: 100%;
+    #             max-width: 100%;
+    #             margin: 0;
+    #             padding: 0;
+    #             overflow: hidden;
+    #         }}
+    #         div, section, article {{
+    #             max-width: 100%;
+    #             overflow: hidden;
+    #         }}
+    #         p, li, span, td, th {{
+    #             word-break: break-all;
+    #             word-wrap: break-word;
+    #             white-space: normal;
+    #             overflow: hidden;
+    #             max-width: 100%;
+    #         }}
+    #         table {{
+    #             width: 100%;
+    #             max-width: 100%;
+    #             table-layout: fixed;
+    #             overflow: hidden;
+    #         }}
+    #         """
+    #         pisa_status = pisa.CreatePDF(
+    #             html_content,
+    #             dest=pdf_file,
+    #             encoding="utf-8",
+    #             default_css=css_content
+    #         )
+    # 
+    # # 一時画像ファイルを削除
+    # if graph_file_path and os.path.exists(graph_file_path):
+    #     try:
+    #         os.unlink(graph_file_path)
+    #     except Exception:
+    #         pass  # 削除に失敗しても続行
+    # 
+    # # エラーチェック
+    # if pisa_status.err:
+    #     raise Exception(f"PDF生成エラー: {pisa_status.err}")
+    # 
+    # return output_path
     
-        # xhtml2pdfでPDFを生成
-        with open(output_path, "wb") as pdf_file:
-            # CSSでフォントを明示的に指定（PDF出力用の追加設定）
-            # xhtml2pdfではmm単位が確実に機能する
-            # 左余白を確保しつつ、日本語の折り返しを確実にする
-            css_content = f"""
-            @page {{
-                size: A4;
-                margin: 20mm 25mm;
-            }}
-            * {{
-                font-family: "{font_family}", "HeiseiKakuGo-W5", "HeiseiMin-W3", sans-serif !important;
-                box-sizing: border-box;
-            }}
-            html {{
-                width: 100%;
-                margin: 0;
-                padding: 0;
-                overflow-x: hidden;
-            }}
-            body {{
-                font-family: "{font_family}", "HeiseiKakuGo-W5", "HeiseiMin-W3", sans-serif !important;
-                width: 100%;
-                max-width: 100%;
-                margin: 0;
-                padding: 0;
-                overflow: hidden;
-            }}
-            div, section, article {{
-                max-width: 100%;
-                overflow: hidden;
-            }}
-            p, li, span, td, th {{
-                word-break: break-all;
-                word-wrap: break-word;
-                white-space: normal;
-                overflow: hidden;
-                max-width: 100%;
-            }}
-            table {{
-                width: 100%;
-                max-width: 100%;
-                table-layout: fixed;
-                overflow: hidden;
-            }}
-            """
-            pisa_status = pisa.CreatePDF(
-                html_content,
-                dest=pdf_file,
-                encoding="utf-8",
-                default_css=css_content
-            )
-    
-    # 一時画像ファイルを削除
-    if graph_file_path and os.path.exists(graph_file_path):
-        try:
-            os.unlink(graph_file_path)
-        except Exception:
-            pass  # 削除に失敗しても続行
-    
-    # エラーチェック
-    if pisa_status.err:
-        raise Exception(f"PDF生成エラー: {pisa_status.err}")
-    
-    return output_path
+    # PDF機能が無効化されているため、エラーを発生させる
+    raise NotImplementedError("PDF機能は一時的に無効化されています（Streamlit Community Cloud対応のため）")
