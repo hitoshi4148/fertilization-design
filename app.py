@@ -3,12 +3,12 @@
 Streamlit UI
 """
 
+import os
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
 import tempfile
-import os
 import json
 
 from streamlit_cookies_manager import CookieManager
@@ -32,201 +32,207 @@ except ImportError:
     generate_pdf = None
 
 
-# ページ設定
+# ページ設定（最初のStreamlitコマンドでなければならない）
 st.set_page_config(
     page_title="芝しごと・施肥設計ナビ",
     page_icon="🌱",
     layout="wide",
 )
 
+# CSSファイルを読み込む
+css_path = os.path.join(os.path.dirname(__file__), "style.css")
+with open(css_path, encoding="utf-8") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
 # サイドバーの行間を詰めるCSS（強力な上書き）
-st.markdown("""
-<style>
-    /* サイドバー全体のリセット - すべてのマージンとパディングを0に */
-    section[data-testid="stSidebar"] > div {
-        padding-top: 0.2rem !important;
-        padding-bottom: 0.2rem !important;
-    }
-    
-    /* すべての要素コンテナのマージンとパディングを最小化 */
-    section[data-testid="stSidebar"] div[class*="element-container"],
-    section[data-testid="stSidebar"] div[class*="stWidget"],
-    section[data-testid="stSidebar"] div[class*="row-widget"] {
-        margin-top: 0 !important;
-        margin-bottom: 0.1rem !important;
-        padding-top: 0 !important;
-        padding-bottom: 0.1rem !important;
-    }
-    
-    /* ヘッダー（h1, h2, h3）のマージンを完全に削除 */
-    section[data-testid="stSidebar"] h1,
-    section[data-testid="stSidebar"] h2,
-    section[data-testid="stSidebar"] h3 {
-        margin: 0 !important;
-        padding: 0 !important;
-        margin-bottom: 0.2rem !important;
-        line-height: 1.1 !important;
-        font-size: 1.1rem !important;
-    }
-    
-    /* パラグラフ（markdown）のマージンを削除 */
-    section[data-testid="stSidebar"] p {
-        margin: 0 !important;
-        padding: 0 !important;
-        margin-bottom: 0.1rem !important;
-        line-height: 1.2 !important;
-    }
-    section[data-testid="stSidebar"] p strong {
-        display: block;
-        margin-bottom: 0.3rem !important;
-        margin-top: 0.3rem !important;
-        line-height: 1.2 !important;
-        font-size: 0.95rem !important;
-        font-weight: 600 !important;
-    }
-    /* セクション区切り線（hr）のスタイル */
-    section[data-testid="stSidebar"] hr {
-        margin: 0.5rem 0 !important;
-        border: none !important;
-        border-top: 1px solid #e0e0e0 !important;
-        padding: 0 !important;
-    }
-    /* キャプション（説明文）のスタイル */
-    section[data-testid="stSidebar"] .stCaption {
-        margin: 0 !important;
-        padding: 0 !important;
-        margin-bottom: 0.2rem !important;
-        font-size: 0.8rem !important;
-        color: #666 !important;
-        line-height: 1.2 !important;
-    }
-    
-    /* ラベルのマージンとパディングを削除 */
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] label > div {
-        margin: 0 !important;
-        padding: 0 !important;
-        margin-bottom: 0.3rem !important;
-        line-height: 1.1 !important;
-        font-size: 0.9rem !important;
-    }
-    
-    /* 入力フィールド（number_input, selectbox）のコンテナ */
-    section[data-testid="stSidebar"] div[data-baseweb="input"],
-    section[data-testid="stSidebar"] div[data-baseweb="select"],
-    section[data-testid="stSidebar"] div[data-baseweb="radio"],
-    section[data-testid="stSidebar"] .stNumberInput > div,
-    section[data-testid="stSidebar"] .stSelectbox > div,
-    section[data-testid="stSidebar"] .stRadio > div {
-        margin: 0 !important;
-        padding: 0 !important;
-        margin-top: 0.05rem !important;
-        margin-bottom: 0.05rem !important;
-    }
-    
-    /* 入力フィールド自体の高さを統一（number_inputとselectboxを同じ高さに） */
-    section[data-testid="stSidebar"] input,
-    section[data-testid="stSidebar"] select,
-    section[data-testid="stSidebar"] input[type="number"],
-    section[data-testid="stSidebar"] [data-baseweb="input"] input,
-    section[data-testid="stSidebar"] [data-baseweb="select"] select {
-        min-height: 28px !important;
-        height: 28px !important;
-        padding: 0.2rem 0.5rem !important;
-        font-size: 0.9rem !important;
-        line-height: 1.2 !important;
-    }
-    /* BaseWebコンポーネントのコンテナも同じ高さに */
-    section[data-testid="stSidebar"] [data-baseweb="input"],
-    section[data-testid="stSidebar"] [data-baseweb="select"] {
-        min-height: 28px !important;
-        height: 28px !important;
-    }
-    
-    /* ボタンのマージンとパディングを削減 */
-    section[data-testid="stSidebar"] button,
-    section[data-testid="stSidebar"] .stButton > button {
-        margin: 0 !important;
-        padding: 0.3rem 0.5rem !important;
-        margin-top: 0.1rem !important;
-        margin-bottom: 0.1rem !important;
-        min-height: 32px !important;
-        height: 32px !important;
-        font-size: 0.9rem !important;
-        line-height: 1.2 !important;
-    }
-    
-    /* ボタンコンテナのマージンを削減 */
-    section[data-testid="stSidebar"] .stButton {
-        margin: 0 !important;
-        padding: 0 !important;
-        margin-top: 0.1rem !important;
-        margin-bottom: 0.1rem !important;
-    }
-    
-    /* カラムのマージンを削減 */
-    section[data-testid="stSidebar"] div[data-testid="column"],
-    section[data-testid="stSidebar"] [class*="column"] {
-        margin: 0 !important;
-        padding: 0 !important;
-        margin-bottom: 0.05rem !important;
-    }
-    
-    /* カラム内の要素のマージンも削減 */
-    section[data-testid="stSidebar"] div[data-testid="column"] > div {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    
-    /* 成功/エラーメッセージのマージンを削減 */
-    section[data-testid="stSidebar"] .stSuccess,
-    section[data-testid="stSidebar"] .stError,
-    section[data-testid="stSidebar"] .stInfo {
-        margin: 0 !important;
-        padding: 0.3rem !important;
-        margin-top: 0.1rem !important;
-        margin-bottom: 0.1rem !important;
-        font-size: 0.85rem !important;
-    }
-    
-    /* Streamlitの内部スペーサーを削除 */
-    section[data-testid="stSidebar"] [class*="block-container"],
-    section[data-testid="stSidebar"] [class*="main"] {
-        padding: 0 !important;
-        margin: 0 !important;
-    }
-    
-    /* スピナーボタン（-/+）のサイズを小さく */
-    section[data-testid="stSidebar"] input[type="number"]::-webkit-inner-spin-button,
-    section[data-testid="stSidebar"] input[type="number"]::-webkit-outer-spin-button {
-        width: 12px !important;
-        height: 12px !important;
-        opacity: 0.6 !important;
-    }
-    /* BaseWebコンポーネント内のスピナーボタンも小さく */
-    section[data-testid="stSidebar"] [data-baseweb="input"] input[type="number"]::-webkit-inner-spin-button,
-    section[data-testid="stSidebar"] [data-baseweb="input"] input[type="number"]::-webkit-outer-spin-button {
-        width: 12px !important;
-        height: 12px !important;
-        opacity: 0.6 !important;
-    }
-    
-    /* 右側ガイドカラム（「この画面で何を決めているか」）の文字サイズを1ポイント小さく */
-    /* タイトル（h3）を1ポイント小さく */
-    div[data-testid="column"]:nth-child(2) h3,
-    div[data-testid="column"]:nth-child(2) .stMarkdown h3 {
-        font-size: 0.85em !important;
-    }
-    /* タイトル以外（pなど）を1ポイント小さく */
-    div[data-testid="column"]:nth-child(2) p,
-    div[data-testid="column"]:nth-child(2) .stMarkdown p {
-        font-size: 0.85em !important;
-    }
-    div[data-testid="column"]:nth-child(2) .stInfo {
-        font-size: 0.8em !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+#st.markdown("""
+#<style>
+#    /* サイドバー全体のリセット - すべてのマージンとパディングを0に */
+#    section[data-testid="stSidebar"] > div {
+#        padding-top: 0.2rem !important;
+#        padding-bottom: 0.2rem !important;
+#    }
+#    
+#    /* すべての要素コンテナのマージンとパディングを最小化 */
+#    section[data-testid="stSidebar"] div[class*="element-container"],
+#    section[data-testid="stSidebar"] div[class*="stWidget"],
+#    section[data-testid="stSidebar"] div[class*="row-widget"] {
+#        margin-top: 0 !important;
+#        margin-bottom: 0.1rem !important;
+#        padding-top: 0 !important;
+#        padding-bottom: 0.1rem !important;
+#    }
+#    
+#    /* ヘッダー（h1, h2, h3）のマージンを完全に削除 */
+#    section[data-testid="stSidebar"] h1,
+#    section[data-testid="stSidebar"] h2,
+#    section[data-testid="stSidebar"] h3 {
+#        margin: 0 !important;
+#        padding: 0 !important;
+#        margin-bottom: 0.2rem !important;
+#        line-height: 1.1 !important;
+#        font-size: 1.1rem !important;
+#    }
+#    
+#    /* パラグラフ（markdown）のマージンを削除 */
+#    section[data-testid="stSidebar"] p {
+#        margin: 0 !important;
+#        padding: 0 !important;
+#        margin-bottom: 0.1rem !important;
+#        line-height: 1.2 !important;
+#    }
+#    section[data-testid="stSidebar"] p strong {
+#        display: block;
+#        margin-bottom: 0.3rem !important;
+#        margin-top: 0.3rem !important;
+#        line-height: 1.2 !important;
+#        font-size: 0.95rem !important;
+#        font-weight: 600 !important;
+#    }
+#    /* セクション区切り線（hr）のスタイル */
+#    section[data-testid="stSidebar"] hr {
+#        margin: 0.5rem 0 !important;
+#        border: none !important;
+#
+#        border-top: 1px solid #e0e0e0 !important;
+#        padding: 0 !important;
+#    }
+#    /* キャプション（説明文）のスタイル */
+#    section[data-testid="stSidebar"] .stCaption {
+#        margin: 0 !important;
+#        padding: 0 !important;
+#        margin-bottom: 0.2rem !important;
+#        font-size: 0.8rem !important;
+#        color: #666 !important;
+#        line-height: 1.2 !important;
+#    }
+#    
+#    /* ラベルのマージンとパディングを削除 */
+#    section[data-testid="stSidebar"] label,
+#    section[data-testid="stSidebar"] label > div {
+#        margin: 0 !important;
+#        padding: 0 !important;
+#        margin-bottom: 0.3rem !important;
+#        line-height: 1.1 !important;
+#        font-size: 0.9rem !important;
+#    }
+#    
+#    /* 入力フィールド（number_input, selectbox）のコンテナ */
+#    section[data-testid="stSidebar"] div[data-baseweb="input"],
+#    section[data-testid="stSidebar"] div[data-baseweb="select"],
+#    section[data-testid="stSidebar"] div[data-baseweb="radio"],
+#    section[data-testid="stSidebar"] .stNumberInput > div,
+#    section[data-testid="stSidebar"] .stSelectbox > div,
+#    section[data-testid="stSidebar"] .stRadio > div {
+#        margin: 0 !important;
+#        padding: 0 !important;
+#        margin-top: 0.05rem !im#portant;
+#        margin-bottom: 0.05rem !important;
+#    }
+#    
+#    /* 入力フィールド自体の高さを統一（number_inputとselectboxを同じ高さに） */
+#    section[data-testid="stSidebar"] input,
+#    section[data-testid="stSidebar"] select,
+#    section[data-testid="stSidebar"] input[type="number"],
+#    section[data-testid="stSidebar"] [data-baseweb="input"] input,
+#    section[data-testid="stSidebar"] [data-baseweb="select"] select {
+#        min-height: 28px !important;
+#        height: 28px !important;
+#        padding: 0.2rem 0.5rem !important;
+#        font-size: 0.9rem !important;
+#        line-height: 1.2 !important;
+#    }
+#    /* BaseWebコンポーネントのコンテナも同じ高さに */
+#    section[data-testid="stSidebar"] [data-baseweb="input"],
+#    section[data-testid="stSidebar"] [data-baseweb="select"] {
+#        min-height: 28px !important;
+#        height: 28px !important;
+#    }
+#    
+#    /* ボタンのマージンとパディングを削減 */
+#    section[data-testid="stSidebar"] button,
+#    section[data-testid="stSidebar"] .stButton > button {
+#        margin: 0 !important;
+#        padding: 0.3rem 0.5rem !important;
+#        margin-top: 0.1rem !important;
+#        margin-bottom: 0.1rem !important;
+#        min-height: 32px !important;
+#        height: 32px !important;
+#        font-size: 0.9rem !important;
+#        line-height: 1.2 !important;
+#    }
+#    
+#    /* ボタンコンテナのマージンを削減 */
+#    section[data-testid="stSidebar"] .stButton {
+#        margin: 0 !important;
+#        padding: 0 !important;
+#        margin-top: 0.1rem !important;
+#        margin-bottom: 0.1rem !important;
+#    }
+#    
+#    /* カラムのマージンを削減 */
+#    section[data-testid="stSidebar"] div[data-testid="column"],
+#    section[data-testid="stSidebar"] [class*="column"] {
+#        margin: 0 !important;
+#        padding: 0 !important;
+#        margin-bottom: 0.05rem !important;
+#    }
+#    
+#    /* カラム内の要素のマージンも削減 */
+#    section[data-testid="stSidebar"] div[data-testid="column"] > div {
+#        margin: 0 !important;
+#        padding: 0 !important;
+#    }
+#    
+#    /* 成功/エラーメッセージのマージンを削減 */
+#    section[data-testid="stSidebar"] .stSuccess,
+#    section[data-testid="stSidebar"] .stError,
+#    section[data-testid="stSidebar"] .stInfo {
+#        margin: 0 !important;
+#        padding: 0.3rem !important;
+#        margin-top: 0.1rem !important;
+#        margin-bottom: 0.1rem !important;
+#        font-size: 0.85rem !important;
+#    }
+#    
+#    /* Streamlitの内部スペーサーを削除 */
+#    section[data-testid="stSidebar"] [class*="block-container"],
+#    section[data-testid="stSidebar"] [class*="main"] {
+#        padding: 0 !important;
+#        margin: 0 !important;
+#    }
+#    
+#    /* スピナーボタン（-/+）のサイズを小さく */
+#    section[data-testid="stSidebar"] input[type="number"]::-webkit-inner-spin-button,
+#    section[data-testid="stSidebar"] input[type="number"]::-webkit-outer-spin-button {
+#        width: 12px !important;
+#        height: 12px !important;
+#        opacity: 0.6 !important;
+#    }
+#    /* BaseWebコンポーネント内のスピナーボタンも小さく */
+#    section[data-testid="stSidebar"] [data-baseweb="input"] input[type="number"]::-webkit-inner-spin-button,
+#    section[data-testid="stSidebar"] [data-baseweb="input"] input[type="number"]::-webkit-outer-spin-button {
+#        width: 12px !important;
+#        height: 12px !important;
+#        opacity: 0.6 !important;
+#    }
+#    
+#    /* 右側ガイドカラム（「この画面で何を決めているか」）の文字サイズを1ポイント小さく */
+#    /* タイトル（h3）を1ポイント小さく */
+#    div[data-testid="column"]:nth-child(2) h3,
+#    div[data-testid="column"]:nth-child(2) .stMarkdown h3 {
+#        font-size: 0.85em !important;
+#    }
+#    /* タイトル以外（pなど）を1ポイント小さく */
+#    div[data-testid="column"]:nth-child(2) p,
+#    div[data-testid="column"]:nth-child(2) .stMarkdown p {
+#        font-size: 0.85em !important;
+#    }
+#    div[data-testid="column"]:nth-child(2) .stInfo {
+#        font-size: 0.8em !important;
+#    }
+#</style>
+#""", unsafe_allow_html=True)
 
 # Cookie管理の初期化（キャッシュなしで直接初期化）
 cookies = CookieManager()
@@ -669,18 +675,7 @@ else:
             # 気温ベースのGPが存在する場合
             # WOSの場合のみ、coolとwarmの両方を追加表示
             if "cool" in gp_dict and "warm" in gp_dict:
-                # WOS：気温ベースのGP（メイン）と、cool/warmの両方を表示
-                fig.add_trace(
-                go.Scatter(
-                    x=months,
-                    y=monthly_gp,
-                    mode="lines+markers",
-                    name="Growth Potential（気温ベース）",
-                    line=dict(color="#2c5f2d", width=2),
-                    marker=dict(size=8),
-                ),
-                row=1, col=1,
-                )
+                # WOS：cool/warmの両方を表示（気温ベースのGPは表示しない）
                 fig.add_trace(
                     go.Scatter(
                         x=months,
