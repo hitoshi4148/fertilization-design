@@ -231,6 +231,18 @@ cookies = CookieManager()
 title_col, banner_col = st.columns([3, 1])
 with title_col:
     st.title("芝しごと・施肥設計ナビ")
+    st.markdown("""
+    <div style="line-height: 1.2; margin-top: -0.5rem;">
+        <strong>土壌分析値に基づく芝生施肥設計支援</strong><br>
+        <span style="font-size: 0.9em; color: #666;">（2026.1.27版）</span>
+    </div>
+    """, unsafe_allow_html=True)
+    # サブタイトル下のバナー画像
+    banner_728_path = "pdf/banner_ad_recruitment_728x90.jpg"
+    if os.path.exists(banner_728_path):
+        st.image(banner_728_path)
+    else:
+        st.caption("バナー画像が見つかりません")
 with banner_col:
     # バナー画像を表示
     banner_path = "pdf/banner_ad_recruitment_300x250.jpg"
@@ -921,3 +933,13 @@ else:
         #                 st.exception(e)
         # else:
         #     st.info("ℹ️ PDF出力機能は現在利用できません（Streamlit Community Cloud対応のため一時的に無効化されています）")
+
+# フッター
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; padding: 1rem 0; color: #666;">
+    <a href="https://www.turf-tools.jp/" target="_blank" style="text-decoration: none; color: #666;">
+        ©グロウアンドプログレス
+    </a>
+</div>
+""", unsafe_allow_html=True)
