@@ -211,15 +211,19 @@ st.markdown("""
         opacity: 0.6 !important;
     }
     
-    /* 右側ガイドカラム（「この画面で何を決めているか」）の文字サイズを1段階小さく */
-    div[data-testid="column"]:nth-child(2) p,
+    /* 右側ガイドカラム（「この画面で何を決めているか」）の文字サイズを1ポイント小さく */
+    /* タイトル（h3）を1ポイント小さく */
     div[data-testid="column"]:nth-child(2) h3,
-    div[data-testid="column"]:nth-child(2) .stMarkdown p,
     div[data-testid="column"]:nth-child(2) .stMarkdown h3 {
-        font-size: 0.9em !important;
+        font-size: 0.85em !important;
+    }
+    /* タイトル以外（pなど）を1ポイント小さく */
+    div[data-testid="column"]:nth-child(2) p,
+    div[data-testid="column"]:nth-child(2) .stMarkdown p {
+        font-size: 0.85em !important;
     }
     div[data-testid="column"]:nth-child(2) .stInfo {
-        font-size: 0.85em !important;
+        font-size: 0.8em !important;
     }
 </style>
 """, unsafe_allow_html=True)
