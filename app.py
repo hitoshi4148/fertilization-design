@@ -7,7 +7,7 @@ import pandas as pd
 
 # ページ設定（最初のStreamlitコマンドでなければならない）
 st.set_page_config(
-    page_title="CSS Test",
+    page_title="芝しごと・施肥設計ナビ",
     page_icon="🌱",
     layout="wide",
 )
@@ -475,11 +475,22 @@ st.markdown(
     unsafe_allow_html=True
 )
 st.markdown(
-    '<div class="version">2026/1/27版</div>',
+    '<div class="version">2026/2/12版</div>',
     unsafe_allow_html=True
 )
 
-# ← ここに入れる
+# ── バナー表示 ──
+banner_728 = os.path.join(os.path.dirname(__file__), "banner_ad_recruitment_728x90.jpg")
+banner_300 = os.path.join(os.path.dirname(__file__), "banner_ad_recruitment_300x250.jpg")
+
+col_banner_wide, col_banner_sq = st.columns([3, 1])
+with col_banner_wide:
+    if os.path.exists(banner_728):
+        st.image(banner_728)
+with col_banner_sq:
+    if os.path.exists(banner_300):
+        st.image(banner_300)
+
 col1, col2 = st.columns(2)
 
 col_main, col_guide = st.columns([3, 1])
@@ -952,4 +963,12 @@ st.markdown("""
 #
 #    st.caption(msg)
 
-
+# ===== フッター =====
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; padding: 1rem 0; color: #666;">
+    <a href="https://www.turf-tools.jp/" target="_blank" style="text-decoration: none; color: #666;">
+        &copy;グロウアンドプログレス
+    </a>
+</div>
+""", unsafe_allow_html=True)
