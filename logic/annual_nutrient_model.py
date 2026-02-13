@@ -9,7 +9,6 @@ from .constants import (
     GrassType,
     UsageType,
     ManagementIntensity,
-    PGRIntensity,
     FertilizerStance,
     SOIL_REFERENCE_RANGES,
 )
@@ -54,14 +53,6 @@ ANNUAL_N_RANGE: Dict[Tuple[GrassType, UsageType, ManagementIntensity], Dict[str,
     (GrassType.WOS, UsageType.GOLF, ManagementIntensity.HIGH): {"msln": 25.0, "slan": 40.0},
 }
 
-# PGR補正係数
-PGR_REDUCTION_RATE: Dict[PGRIntensity, float] = {
-    PGRIntensity.NONE: 1.0,
-    PGRIntensity.WEAK: 0.9,
-    PGRIntensity.MEDIUM: 0.8,
-    PGRIntensity.STRONG: 0.7,
-}
-
 # 施肥スタンスによる位置（MSLN〜SLAN内の位置）
 STANCE_POSITION: Dict[FertilizerStance, float] = {
     FertilizerStance.LOWER: 0.25,  # 下限寄り（MSLN寄り）
@@ -101,7 +92,6 @@ def calculate_annual_nitrogen(
     grass_type: GrassType,
     usage_type: UsageType,
     management_intensity: ManagementIntensity,
-    pgr_intensity: PGRIntensity,
     fertilizer_stance: FertilizerStance,
 ) -> Dict:
     """
@@ -111,7 +101,6 @@ def calculate_annual_nitrogen(
         grass_type: 芝種区分
         usage_type: 利用形態
         management_intensity: 管理強度
-        pgr_intensity: PGR強度
         fertilizer_stance: 施肥スタンス
     
     Returns:
@@ -131,22 +120,17 @@ def calculate_annual_nitrogen(
     
     # MSLN〜SLAN内の位置を決定
     position_ratio = STANCE_POSITION[fertilizer_stance]
-    base_n = msln + (slan - msln) * position_ratio
-    
-    # PGR補正を適用
-    pgr_factor = PGR_REDUCTION_RATE[pgr_intensity]
-    annual_n = base_n * pgr_factor
+    annual_n = msln + (slan - msln) * position_ratio
     
     # MSLN/SLANの範囲内に収める
     annual_n = max(msln, min(slan, annual_n))
     
     # 説明文を生成（g/m²に変換：1 kg/ha = 0.1 g/m²）
     position_text = fertilizer_stance.value
-    pgr_text = pgr_intensity.value
     reason = (
         f"このN量は、{grass_type.value}・{usage_type.value}・{management_intensity.value}管理強度を前提に、"
-        f"MSLN（{msln/10:.1f}g/m²）〜SLAN（{slan/10:.1f}g/m²）の範囲内で{position_text}の位置（{position_ratio*100:.0f}%位置）を選択し、"
-        f"PGR（{pgr_text}）による補正を適用した年間窒素設計量です。"
+        f"MSLN（{msln/10:.1f}g/m²）〜SLAN（{slan/10:.1f}g/m²）の範囲内で{position_text}の位置（{position_ratio*100:.0f}%位置）を選択した"
+        f"年間窒素設計量です。"
     )
     
     return {
@@ -445,7 +429,6 @@ def calculate_annual_nutrient_requirements(
     grass_type: GrassType,
     usage_type: UsageType,
     management_intensity: ManagementIntensity,
-    pgr_intensity: PGRIntensity,
     soil_values: Dict[str, float],  # {"P": float, "K": float, "Ca": float, "Mg": float}
     fertilizer_stance: FertilizerStance,
 ) -> Dict[str, Dict]:
@@ -456,7 +439,6 @@ def calculate_annual_nutrient_requirements(
         grass_type: 芝種区分
         usage_type: 利用形態
         management_intensity: 管理強度
-        pgr_intensity: PGR強度
         soil_values: 土壌診断値
         fertilizer_stance: 施肥スタンス
     
@@ -471,7 +453,7 @@ def calculate_annual_nutrient_requirements(
     """
     # 1. Nの年間量を決定
     n_result = calculate_annual_nitrogen(
-        grass_type, usage_type, management_intensity, pgr_intensity, fertilizer_stance
+        grass_type, usage_type, management_intensity, fertilizer_stance
     )
     
     # 2. Pの年間量を決定

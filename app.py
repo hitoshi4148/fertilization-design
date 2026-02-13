@@ -1,9 +1,15 @@
-from enum import nonmember
 import io
 import math
+import base64
 import streamlit as st
 import os
 import pandas as pd
+import altair as alt
+
+from logic.monthly_distribution import (
+    calculate_monthly_distribution_ratios,
+    get_season_factors,
+)
 
 # ページ設定（最初のStreamlitコマンドでなければならない）
 st.set_page_config(
@@ -17,74 +23,6 @@ css_path = os.path.join(os.path.dirname(__file__), "style.css")
 with open(css_path, encoding="utf-8") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-TERM_GUIDE = {
-    "競技場向け": """
-**MLSN（Minimum Levels for Sustainable Nutrition）**  
-競技利用において芝生の健全性を長期的に維持するための  
-**土壌中栄養要素の最低限必要な水準**を示します。  
-※ N は Nitrogen（窒素）ではなく、Nutrition（栄養）を意味します。
-
-**SLAN（Sufficiency Level of Available Nutrition）**  
-芝生の生育反応が安定し、品質が確保される  
-**利用可能栄養の十分域**を示す指標です。
-
-本アプリでは、  
-**MLSN〜SLANの範囲内で、競技要求度に応じた位置づけ**を行います。
-""",
-
-    "ゴルフ場向け": """
-**MLSN（Minimum Levels for Sustainable Nutrition）**  
-芝草が過不足なく持続的に生育するために必要な  
-**土壌中栄養要素の下限値**を示します。  
-※ N は Nitrogen（窒素）ではなく、Nutrition（栄養）を意味します。
-
-**SLAN（Sufficiency Level of Available Nutrition）**  
-芝草の生育が安定し、管理効率が高まる  
-**栄養供給の目安となる上限域**です。
-
-本アプリでは、  
-**MLSN〜SLANを幅として捉え、管理方針に応じて活用**します。
-"""
-}
-
-CA_MG_COMMENT = {
-    "競技場向け": {
-        "high": "Ca 優位です。硬化・乾燥により、競技コンディション低下の恐れがあります。",
-        "balanced": "Ca : Mg 比はおおむね良好です。競技条件として安定しています。",
-        "low": "Mg 優位です。過湿化や軟弱化に注意してください。"
-    },
-    "ゴルフ場向け": {
-        "high": "Ca がやや優位です。表層の締まりや乾きやすさに留意してください。",
-        "balanced": "Ca : Mg 比はバランスの取れた状態です。",
-        "low": "Mg がやや多めです。湿害や柔らかさに注意が必要です。"
-    }
-}
-
-CA_MG_ACTION = {
-    "競技場向け": {
-        "high": "Ca 優位のため、表層硬化・乾燥進行に注意。Mg補給や物理的緩和措置の検討が有効です。",
-        "balanced": "Ca:Mg 比は競技条件下でも安定しています。現行管理を維持しつつ推移を確認してください。",
-        "low": "Mg 優位の傾向があります。過湿・軟弱化を避けるため、Ca バランスに注意してください。"
-    },
-    "ゴルフ場向け": {
-        "high": "Ca がやや優位です。硬化傾向が出る場合は Mg 補給や有機物管理を検討してください。",
-        "balanced": "Ca:Mg 比は良好です。大きな調整は不要と考えられます。",
-        "low": "Mg 優位のため、排水性や踏圧条件に応じた Ca バランス調整を検討します。"
-    }
-}
-
-N_ACTION = {
-    "競技場向け": {
-        "low": "競技品質を維持するには、生育量と密度の底上げが必要です。即効性と持続性のバランスを考慮します。",
-        "balanced": "現状の生育水準は安定しています。急激な変化を避け、状態維持を優先します。",
-        "high": "過繁茂による品質低下に注意が必要です。抑制的管理や施肥間隔の調整を検討します。"
-    },
-    "ゴルフ場向け": {
-        "low": "生育改善を目的に、段階的な補給を検討します。",
-        "balanced": "現在の施肥設計は妥当です。現行管理を継続します。",
-        "high": "過剰生育を避けるため、施肥量やタイミングの見直しを検討します。"
-    }
-}
 
 ELEMENTS = {
     "N": {
@@ -122,28 +60,11 @@ FERTILIZERS = {
     },
 }
 
-# 月別配分（割合）
-MONTHLY_DISTRIBUTION = {
-    "N": {
-        "3": 0.15,
-        "4": 0.20,
-        "5": 0.25,
-        "6": 0.15,
-        "9": 0.15,
-        "10": 0.10,
-    },
-    "P": {
-        "4": 0.50,
-        "9": 0.50,
-    },
-    "K": {
-        "4": 0.30,
-        "5": 0.30,
-        "9": 0.40,
-    }
-}
-
 fert_results = {}
+
+# ── 月順ラベル（暦年 1月〜12月 固定） ──
+MONTHS_LABEL = ["1月", "2月", "3月", "4月", "5月", "6月",
+                "7月", "8月", "9月", "10月", "11月", "12月"]
 
 
 def judge_status(value, mlsn, slan):
@@ -161,27 +82,6 @@ def judge_status(value, mlsn, slan):
 def calc_deficit(value, mlsn):
     return max(0, mlsn - value)
 
-def action_template(status, name, tone):
-    ACTIONS = {
-        ("N", "不足", "競技場向け"):
-            "生育量と回復力を優先し、即効性を意識した設計が有効です。",
-        ("N", "適正", "競技場向け"):
-            "現状の生育水準は良好です。試合強度に応じた微調整を行います。",
-        ("N", "過剰", "競技場向け"):
-            "過繁茂による品質低下に注意し、抑制的な配分を検討します。",
-
-        ("N", "不足", "ゴルフ場向け"):
-            "生育改善を目的に、段階的な補給を検討します。",
-        ("N", "適正", "ゴルフ場向け"):
-            "現在の施肥設計は妥当です。現行管理を継続します。",
-        ("N", "過剰", "ゴルフ場向け"):
-            "過剰生育を避けるため、施肥量の見直しを検討します。",
-    }
-
-    return ACTIONS.get(
-        (name, status, tone),
-        "この要素の設計指針は今後拡張予定です。"
-    )
 
 
 # ④ コメント生成関数（★ここが正解）
@@ -227,8 +127,8 @@ def render_soil_eval(name, value, mlsn, slan):
 
     # ── 3. 不足時：補正量の算出と登録 ──
     if status == "不足":
-        deficit        = mlsn - value
-        deficit_kg_10a = deficit * MG100G_TO_KG10A
+        deficit        = max(0.0, mlsn - value)
+        deficit_kg_10a = max(0.0, deficit * MG100G_TO_KG10A)
         fert_kg        = calc_fertilizer_amount(deficit_kg_10a, name)
         warning_text   = (
             "⚠️ この項目は目安値を下回っています。"
@@ -249,13 +149,15 @@ def render_soil_eval(name, value, mlsn, slan):
 
     # ── 4. 月別配分テキストの生成・テーブル表示 ──
     if monthly_plan is not None:
+        # 月順を 1〜12 で明示的に固定
+        ordered_months = [str(m) for m in range(1, 13)]
         monthly_text = "<br>".join(
-            [f"{m}月：{v:.2f} kg / 10a" for m, v in monthly_plan.items()]
+            [f"{m}月：{monthly_plan.get(m, 0.0):.2f} kg / 10a" for m in ordered_months]
         )
 
         df_monthly = pd.DataFrame({
-            "月": [f"{m}月" for m in monthly_plan.keys()],
-            "施肥量（kg / 10a）": [round(v, 2) for v in monthly_plan.values()],
+            "月": MONTHS_LABEL,
+            "施肥量（kg / 10a）": [round(monthly_plan.get(str(m), 0.0), 2) for m in range(1, 13)],
         })
         st.subheader(f"月別施肥配分({name})")
         st.caption("※ 単位：kg / 10a（月別の施肥量）")
@@ -307,12 +209,11 @@ def calc_fertilizer_amount(deficit_kg, elem):
     rate = fert["rate"]
     return deficit_kg / rate
 
-def split_by_month(total_kg_10a, elem):
-    dist = MONTHLY_DISTRIBUTION.get(elem, {})
-    return {
-        month: total_kg_10a * ratio
-        for month, ratio in dist.items()
-    }
+def split_by_month(total_kg_10a, _elem=None):
+    """年間施肥量をGP配分比率で12ヶ月に配分する。
+    monthly_dist_ratios はGP計算後に設定されるグローバル変数。
+    """
+    return {str(m + 1): total_kg_10a * monthly_dist_ratios[m] for m in range(12)}
 
 
 def render_ca_mg_ratio(ca, mg):
@@ -442,7 +343,13 @@ def monthly_gp_averages(daily_gp):
 # URL クエリパラメータからの復元（ページ再読み込み時）
 # ============================================================
 TURF_OPTIONS = ["寒地型芝", "暖地型芝", "日本芝", "ウィンターオーバーシード（WOS）"]
-DIST_OPTIONS = ["春重点配分（おすすめ）", "GP準拠", "均等配分"]
+DIST_OPTIONS = ["春重点70", "春重点50", "春重点30", "GP準拠"]
+DIST_LABELS = {
+    "春重点70": "春重点70%",
+    "春重点50": "春重点50%（おすすめ）",
+    "春重点30": "春重点30%",
+    "GP準拠": "GP準拠",
+}
 
 qp = st.query_params
 
@@ -474,39 +381,37 @@ st.markdown(
     '<div class="subtitle">— グリーンキーパーのための土壌分析ベース施肥設計 —</div>',
     unsafe_allow_html=True
 )
-st.markdown(
-    '<div class="version">2026/2/12版</div>',
-    unsafe_allow_html=True
-)
 
-# ── バナー表示 ──
+# ── バナー表示（mailto リンク付き） ──
+_BANNER_MAILTO = "mailto:growthandprogress4148@gmail.com?subject=%E3%83%90%E3%83%8A%E3%83%BC%E5%BA%83%E5%91%8A%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6"
 banner_728 = os.path.join(os.path.dirname(__file__), "banner_ad_recruitment_728x90.jpg")
 banner_300 = os.path.join(os.path.dirname(__file__), "banner_ad_recruitment_300x250.jpg")
+
+def _img_to_base64(path: str) -> str:
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
 
 col_banner_wide, col_banner_sq = st.columns([3, 1])
 with col_banner_wide:
     if os.path.exists(banner_728):
-        st.image(banner_728)
+        b64 = _img_to_base64(banner_728)
+        st.markdown(
+            f'<a href="{_BANNER_MAILTO}">'
+            f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;" />'
+            f'</a>',
+            unsafe_allow_html=True,
+        )
 with col_banner_sq:
     if os.path.exists(banner_300):
-        st.image(banner_300)
-
-col1, col2 = st.columns(2)
-
-col_main, col_guide = st.columns([3, 1])
+        b64 = _img_to_base64(banner_300)
+        st.markdown(
+            f'<a href="{_BANNER_MAILTO}">'
+            f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;" />'
+            f'</a>',
+            unsafe_allow_html=True,
+        )
 
 st.markdown("## 基本条件（設計前提）")
-
-tone = st.selectbox(
-    "表現スタイル",
-    ["競技場向け", "ゴルフ場向け"]
-)
-
-with col_guide:
-    st.markdown("### 用語ガイド")
-    st.markdown(TERM_GUIDE[tone])
-
-st.caption(f"現在の表現スタイル：{tone}")
 
 with st.container():
     _turf_default = st.session_state.get("qp_turf", TURF_OPTIONS[0])
@@ -535,56 +440,49 @@ with st.container():
     )
 
 with st.container():
-    management_intensity = st.selectbox(
-        "管理強度",
-        ["低", "中", "高"]
-    )
-
+    _dist_default = st.session_state.get("qp_dist", "春重点50")
+    if _dist_default not in DIST_OPTIONS:
+        _dist_default = "春重点50"
+    _dist_index = DIST_OPTIONS.index(_dist_default)
     allocation_method = st.radio(
-        "配分方法",
-        ["春重点配分", "均等配分", "GP準拠"]
+        "🌱 配分方法（GP基準）",
+        DIST_OPTIONS,
+        index=_dist_index,
+        format_func=lambda x: DIST_LABELS.get(x, x),
     )
 
-    pgr_intensity = st.selectbox(
-        "PGR強度",
-        ["弱", "中", "強"]
-    )
-
+    _mlsn_options = ["下限寄り", "中央", "上限寄り"]
+    _mlsn_labels = {
+        "下限寄り": "下限寄り（MLSN重視）",
+        "中央": "中央",
+        "上限寄り": "上限寄り（SLAN重視）",
+    }
     msl_slan_position = st.selectbox(
-        "MLSN〜SLAN内の位置",
-        ["下限寄り", "中央", "上限寄り"]
+        "🎯 土壌目標水準の選択",
+        _mlsn_options,
+        format_func=lambda x: _mlsn_labels.get(x, x),
     )
-
-# ① 配分方法の選択
-_dist_default = st.session_state.get("qp_dist", DIST_OPTIONS[0])
-_dist_index = DIST_OPTIONS.index(_dist_default) if _dist_default in DIST_OPTIONS else 0
-distribution_method = st.selectbox("施肥配分方法", DIST_OPTIONS, index=_dist_index)
+    st.caption("土壌診断値から不足量を算出する際の目標水準を選択します。")
 
 # ── 入力値を URL クエリパラメータに保存 ──
 st.query_params["lat"] = str(latitude)
 st.query_params["lon"] = str(longitude)
 st.query_params["turf"] = turf_type
-st.query_params["dist"] = distribution_method
+st.query_params["dist"] = allocation_method
 
-# ② 選択に応じた説明文（←ここ！）
-if distribution_method.startswith("春重点配分"):
+# 配分方法の説明文
+if allocation_method.startswith("春重点"):
+    _pct = allocation_method.replace("春重点", "")
     st.caption(
-        "春の気温上昇期に施肥を多く配分し、"
+        f"春の気温上昇期に年間施肥量の約{_pct}%を配分し、"
         "立ち上がりと被覆回復を重視する方法です。"
-        "実務で扱いやすく、多くの圃場で安定した結果が得られます。"
+        "GPに基づく季節補正を加えて月別に配分します。"
     )
-
-elif distribution_method == "GP準拠":
+elif allocation_method == "GP準拠":
     st.caption(
         "気温から算出した成長ポテンシャル（GP）に基づき、"
         "芝の成長しやすさに応じて施肥量を配分します。"
         "理論的ですが、気象データの品質に影響を受けます。"
-    )
-
-elif distribution_method == "均等配分":
-    st.caption(
-        "年間施肥量を均等に配分する方法です。"
-        "シンプルですが、季節ごとの成長差は考慮しません。"
     )
 
 # ===== Growth Potential（GP）表示 =====
@@ -598,8 +496,40 @@ st.caption(
 daily_gp = calculate_daily_gp(latitude, turf_type)
 monthly_gp = monthly_gp_averages(daily_gp)
 
-months_label = [f"{m}月" for m in range(1, 13)]
-months_order = pd.CategoricalIndex(months_label, categories=months_label, ordered=True)
+# ── GP値のリスト化・配分比率の計算 ──
+gp_values_list = [monthly_gp[str(m)] for m in range(1, 13)]
+_gp_sum = sum(gp_values_list)
+gp_ratios_list = (
+    [v / _gp_sum for v in gp_values_list] if _gp_sum > 0 else [1.0 / 12] * 12
+)
+
+# 管理対象 → 利用形態に変換
+if "ゴルフ" in management_target or "フェアウェイ" in management_target:
+    _usage_type = "ゴルフ場"
+else:
+    _usage_type = "競技場"
+
+# 季節補正係数を取得（春重点70/50/30 → "春重点" で季節係数をルックアップ）
+_base_stance = "春重点" if allocation_method.startswith("春重点") else allocation_method
+_season_factors = get_season_factors(
+    turf_type, _usage_type, _base_stance,
+    use_heavy=True,
+)
+
+# 月別配分比率を計算（全要素共通、allocation_method が反映される）
+monthly_dist_ratios = calculate_monthly_distribution_ratios(
+    gp_ratios_list, _season_factors, allocation_method, gp_values_list
+)
+
+# ── 防御的正規化：負値クリップ＋合計 1.0 保証 ──
+monthly_dist_ratios = [max(0.0, r) for r in monthly_dist_ratios]
+_ratio_total = sum(monthly_dist_ratios)
+if _ratio_total > 0:
+    monthly_dist_ratios = [r / _ratio_total for r in monthly_dist_ratios]
+else:
+    monthly_dist_ratios = [1.0 / 12] * 12
+
+# ── GPチャート用 DataFrame ──
 gp_turf_labels = {
     "寒地型芝": "寒地型GP",
     "暖地型芝": "暖地型GP",
@@ -616,14 +546,42 @@ if turf_type == "ウィンターオーバーシード（WOS）":
         "寒地型GP": [monthly_cool[str(m)] for m in range(1, 13)],
         "暖地型GP": [monthly_warm[str(m)] for m in range(1, 13)],
         "WOS（合成GP）": [monthly_gp[str(m)] for m in range(1, 13)],
-    }, index=months_order)
+    }, index=MONTHS_LABEL)
 else:
     label = gp_turf_labels.get(turf_type, turf_type)
     df_gp = pd.DataFrame({
         label: [monthly_gp[str(m)] for m in range(1, 13)],
-    }, index=months_order)
+    }, index=MONTHS_LABEL)
 
-st.line_chart(df_gp)
+# ── 月順を明示的に 1月〜12月 で固定 ──
+df_gp = df_gp.reindex(MONTHS_LABEL)
+
+# ── 安全チェック：NaN / 全ゼロ / 空 ──
+if df_gp.empty:
+    st.error("⚠️ df_gp が空です。GP計算に問題がある可能性があります。")
+elif df_gp.isnull().any().any():
+    st.warning("⚠️ GP値に NaN が含まれています。緯度・芝種の設定を確認してください。")
+elif (df_gp == 0).all().any():
+    st.warning("⚠️ GP値がすべて 0 の列があります。緯度・芝種の設定を確認してください。")
+
+# ── Altair で GP グラフを描画（月順を明示的にカテゴリ制御） ──
+df_plot = df_gp.reset_index()
+df_plot.columns = ["月"] + list(df_gp.columns)
+
+# wide → long 形式に変換（複数系列に対応）
+df_long = df_plot.melt(id_vars="月", var_name="系列", value_name="GP")
+
+gp_chart = (
+    alt.Chart(df_long)
+    .mark_line(point=True)
+    .encode(
+        x=alt.X("月:N", sort=MONTHS_LABEL, title="月"),
+        y=alt.Y("GP:Q", scale=alt.Scale(domain=[0, 1]), title="Growth Potential"),
+        color=alt.Color("系列:N", title=""),
+    )
+    .properties(height=350)
+)
+st.altair_chart(gp_chart, use_container_width=True)
 
 st.dataframe(
     df_gp.T.style.format("{:.2f}"),
@@ -723,43 +681,7 @@ if mg > 0:
 else:
     ca_mg_ratio = None
 
-COMMENT_TEMPLATES = {
-    "競技場向け": {
-        "不足": "競技条件を考えると、{elem}は不足気味です。速やかな補正を検討してください。",
-        "適正": "{elem}は競技使用に対して適正範囲内です。現状維持が妥当です。",
-        "過剰": "{elem}はやや過剰傾向です。競技品質への影響に注意してください。"
-    },
-    "ゴルフ場向け": {
-        "不足": "{elem}はやや不足しています。次回施肥での補正を検討しましょう。",
-        "適正": "{elem}は良好な水準です。現在の管理を継続してください。",
-        "過剰": "{elem}は過剰気味です。施肥量の見直しが必要です。"
-    }
-}
-
-#def generate_comment(status, elem, value, mlsn, slan):
-#    if status == "不足":
-#        return (
-#            f"{elem} は {value:.1f} で、"
-#            f"MLSN（{mlsn:.1f}）を下回っています。"
-#        )
-#
-#    elif status == "適正":
-#        return (
-#            f"{elem} は {value:.1f} で、"
-#            f"MLSN〜SLAN（{mlsn:.1f}〜{slan:.1f}）の範囲内です。"
-#        )
-#
-#    else:
-#        return (
-#            f"{elem} は {value:.1f} で、"
-#            f"SLAN（{slan:.1f}）を上回っています。"
-#        )
-
-
-col1, col2 = st.columns(2)
-
-st.subheader("3. 土壌分析値の評価（仮）")
-st.caption("※ MLSN / SLAN に基づく評価ロジックは今後実装予定です")
+st.subheader("3. 土壌分析値の評価")
 
 col1, col2 = st.columns(2)
 
@@ -786,12 +708,13 @@ for elem in ["N", "P", "K"]:
             monthly_all[month][elem] = kg
 
 if monthly_all:
-    df_all = (
-        pd.DataFrame.from_dict(monthly_all, orient="index")
-        .fillna(0)
-    )
-    df_all = df_all.loc[sorted(df_all.index, key=int)]
-    df_all.index = [f"{m}月" for m in df_all.index]
+    # 全12ヶ月分を明示的に 1〜12 順で構築
+    all_months_str = [str(m) for m in range(1, 13)]
+    rows = []
+    for m_str in all_months_str:
+        row = monthly_all.get(m_str, {"N": 0.0, "P": 0.0, "K": 0.0})
+        rows.append(row)
+    df_all = pd.DataFrame(rows, index=MONTHS_LABEL).fillna(0)
 
     st.subheader("月別施肥計画（N・P・K）")
     st.caption("※ 単位：kg / 10a（不足分を月別に配分した目安）")
@@ -802,7 +725,7 @@ if monthly_all:
     for m in range(1, 13):
         m_str = str(m)
         gp_val = round(monthly_gp.get(m_str, 0.0), 2)
-        dist_coeff = round(MONTHLY_DISTRIBUTION["N"].get(m_str, 0.0), 3)
+        dist_coeff = round(monthly_dist_ratios[m - 1], 3)
 
         n_kgha = round(monthly_all.get(m_str, {}).get("N", 0.0), 2)
         p_kgha = round(monthly_all.get(m_str, {}).get("P", 0.0), 2)
@@ -930,41 +853,25 @@ st.markdown("""
 調整してください。
 """)
 
-#st.markdown("### Ca : Mg 比")
-#
-#if ca_mg_ratio is None:
-#    st.write("Mg が 0 のため、比率は算出できません。")
-#else:
-#    st.write(f"Ca : Mg = {ca_mg_ratio:.1f}")
-#
-#if ca_mg_ratio is not None:
-#    if ca_mg_ratio < 3:
-#        msg = (
-#            "Mg 優位の状態です。土壌が締まりやすく、"
-#            "競技条件では踏圧影響に注意が必要です。"
-#            if tone == "競技場向け"
-#            else
-#            "Mg がやや多く、通気性低下のリスクがあります。"
-#        )
-#    elif ca_mg_ratio > 6:
-#        msg = (
-#            "Ca 優位です。硬化・乾燥傾向に注意してください。"
-#            if tone == "競技場向け"
-#            else
-#            "Ca 過多により Mg 欠乏を招く可能性があります。"
-#        )
-#    else:
-#        msg = (
-#            "Ca:Mg 比は概ね適正範囲です。"
-#            if tone == "競技場向け"
-#            else
-#            "バランスの取れた Ca:Mg 比です。"#
-#        )
-#
-#    st.caption(msg)
+# ===== 用語ガイド =====
+st.markdown("---")
+st.markdown("""
+### 📘 用語ガイド
+
+**MLSN（Minimum Level for Sustainable Nutrition）**  
+持続可能な芝生管理における最低養分基準。  
+過剰施肥を避けながら健全な生育を維持する考え方。
+
+**SLAN（Sufficiency Level of Available Nutrients）**  
+芝生が十分に生育可能とされる養分水準。
+
+本アプリでは、選択した目標基準に基づき不足量を算出し、
+年間施肥計画を月別に配分しています。
+""")
 
 # ===== フッター =====
 st.markdown("---")
+st.caption("Soil-Based Fertilization Planner | 2026/2/13版")
 st.markdown("""
 <div style="text-align: center; padding: 1rem 0; color: #666;">
     <a href="https://www.turf-tools.jp/" target="_blank" style="text-decoration: none; color: #666;">

@@ -12,8 +12,9 @@ from .constants import GrassType, UsageType
 
 class DistributionStance(str, Enum):
     """配分スタンス"""
-    SPRING_FOCUS = "春重点"  # デフォルト
-    FLAT = "平準"
+    SPRING_70 = "春重点70"
+    SPRING_50 = "春重点50"  # デフォルト
+    SPRING_30 = "春重点30"
     GP_BASED = "GP準拠"
 
 
@@ -153,18 +154,6 @@ GP_CONTROL_FACTOR: Dict[str, float] = {
     "low": 0.4,       # GP < 0.30: ほぼ効かせない
     "optimal": 1.0,   # 0.30 <= GP < 0.75: 設計どおり
     "excess": 0.7,    # GP >= 0.75: 効きすぎ防止
-}
-
-# PGR基礎係数
-# PGRは生育速度を下げる
-# 吸収可能なN量も下がる
-# PGRが強いほど、施肥量は減らすべき
-# 特にGPが高い時期ほどPGRの影響は大きい
-PGR_BASE_FACTOR: Dict[int, float] = {
-    0: 1.00,  # 使用なし
-    1: 0.90,  # 軽度（年数回・部分的）
-    2: 0.75,  # 中程度（生育期に定期使用）
-    3: 0.60,  # 強度（競技場・グリーン管理レベル）
 }
 
 # 季節補正係数テーブル（強化版：春前倒し施肥）
@@ -312,66 +301,6 @@ def gp_zone(gp: float) -> str:
         return "excess"   # GPが過剰：効きすぎ防止
 
 
-def pgr_effect_factor(gp: float, pgr_level: int) -> float:
-    """
-    PGR効果係数を計算（GPとの相互作用を考慮）
-    
-    PGRは生育速度を下げる
-    吸収可能なN量も下がる
-    PGRが強いほど、施肥量は減らすべき
-    特にGPが高い時期ほどPGRの影響は大きい
-    
-    Args:
-        gp: GP値（0.0〜1.0）
-        pgr_level: PGR強度（0-3）
-    
-    Returns:
-        PGR効果係数
-    """
-    base = PGR_BASE_FACTOR.get(pgr_level, 1.0)
-    
-    if gp < 0.4:
-        # GPが低い時期はそもそも効かせない（PGR効果も小さい）
-        return 1.0
-    elif gp < 0.7:
-        # GPが適正な時期は基礎係数をそのまま使用
-        return base
-    else:
-        # 真夏（GPが高い）はPGR効果を強調（0.85倍でさらに抑制）
-        return base * 0.85
-
-
-def apply_pgr_control(
-    monthly_weights: List[float],
-    gp_values: List[float],
-    pgr_level: int
-) -> List[float]:
-    """
-    PGR制御を適用
-    
-    PGRは「刈粕量＝窒素収奪量」を下げる操作であり
-    施肥量の最終ブレーキである
-    
-    Args:
-        monthly_weights: 月別ウェイト（GP制御適用後）
-        gp_values: 月別GP値（12ヶ月分）
-        pgr_level: PGR強度（0-3）
-    
-    Returns:
-        PGR制御適用後の月別ウェイト
-    """
-    if pgr_level == 0:
-        # PGR使用なしの場合はそのまま
-        return monthly_weights
-    
-    controlled_weights = []
-    for weight, gp in zip(monthly_weights, gp_values):
-        factor = pgr_effect_factor(gp, pgr_level)
-        controlled_weights.append(weight * factor)
-    
-    return controlled_weights
-
-
 def apply_gp_control(
     monthly_weights: List[float],
     gp_values: List[float]
@@ -442,7 +371,7 @@ def get_season_factors(
     Args:
         grass_type: 芝種区分（"寒地型", "暖地型", "日本芝", "WOS"）
         usage_type: 利用形態（"ゴルフ場", "競技場"）
-        stance: 配分スタンス（"春重点", "平準", "GP準拠"）
+        stance: 配分スタンス（"春重点", "GP準拠"）
         use_heavy: 強化版を使用するか（春重点の場合のみ有効）
     
     Returns:
@@ -465,13 +394,10 @@ def get_season_factors(
         usage_key = "競技場"
     
     # 配分スタンスに応じた処理
-    if stance == "平準":
-        # 均等配分
-        return [1.0] * 12
-    elif stance == "GP準拠":
+    if stance == "GP準拠":
         # GPのみ（季節補正なし）
         return [1.0] * 12
-    else:  # 春重点（デフォルト）
+    else:  # 春重点（デフォルト：70/50/30）
         # 強化版を使用する場合
         if use_heavy:
             heavy_key = (grass_key, usage_key)
@@ -493,88 +419,84 @@ def get_season_factors(
         return apply_management_intensity(base_factors, management_intensity)
 
 
+def _get_spring_scale(stance: str) -> float:
+    """
+    配分スタンスから春重点スケール係数を取得
+    
+    春重点50 を基準（1.0）として、70 は強調、30 は抑制。
+    季節補正係数の偏差（factor - 1.0）に対してスケーリングする。
+    
+    Args:
+        stance: 配分スタンス（"春重点70", "春重点50", "春重点30"）
+    
+    Returns:
+        スケール係数（春重点50 = 1.0）
+    """
+    if "70" in stance:
+        return 1.4
+    elif "30" in stance:
+        return 0.6
+    else:  # 50 or default
+        return 1.0
+
+
 def calculate_monthly_distribution_ratios(
     gp_ratios: List[float],
     season_factors: List[float],
     stance: str,
     gp_values: List[float],  # 月別GP値（制御用）
-    pgr_level: int = 0  # PGR強度（0-3、デフォルト：0=使用なし）
 ) -> List[float]:
     """
     GP比率と季節補正係数から月別配分比率を計算
     
-    処理順序（最終形・確定）：
+    処理順序：
     ① GP（月別）
-    ② 季節係数
+    ② 季節係数（春重点スケーリング適用）
     ③ 管理強度（春ピーク）
     ④ GP制御（生理的上限）
-    ⑤ PGR制御（刈粕抑制）
-    ⑥ 正規化
-    
-    PGRは最後に入れる
-    「人為的管理」を最終判断にする
+    ⑤ 正規化
     
     Args:
         gp_ratios: 正規化されたGP比率（合計=1.0）
         season_factors: 季節補正係数（管理強度適用済み）
-        stance: 配分スタンス
+        stance: 配分スタンス（"春重点70", "春重点50", "春重点30", "GP準拠"）
         gp_values: 月別GP値（0.0〜1.0、GP制御用）
-        pgr_level: PGR強度（0-3）
     
     Returns:
         月別配分比率（合計=1.0）
     """
-    if stance == "平準":
-        # 均等配分（GP制御は適用）
-        raw_weights = [1.0] * 12
-        gp_controlled = apply_gp_control(raw_weights, gp_values)
-        pgr_controlled = apply_pgr_control(gp_controlled, gp_values, pgr_level)
-        
-        # 正規化
-        total = sum(pgr_controlled)
-        if total == 0:
-            return [1.0 / 12] * 12
-        return [w / total for w in pgr_controlled]
-    
-    elif stance == "GP準拠":
+    if stance == "GP準拠":
         # GPのみ（季節補正なし、GP制御は適用）
         raw_weights = gp_ratios.copy()
         gp_controlled = apply_gp_control(raw_weights, gp_values)
-        pgr_controlled = apply_pgr_control(gp_controlled, gp_values, pgr_level)
-        
-        # 正規化
-        total = sum(pgr_controlled)
-        if total == 0:
-            return [1.0 / 12] * 12
-        return [w / total for w in pgr_controlled]
     
-    else:  # 春重点
-        # ① GP × 季節補正（管理強度適用済み）
+    else:  # 春重点（70/50/30）
+        # 春重点スケーリング：50%を基準に偏差を拡縮
+        spring_scale = _get_spring_scale(stance)
+        scaled_season = [
+            max(0.0, 1.0 + (sf - 1.0) * spring_scale) for sf in season_factors
+        ]
+        
+        # ① GP × スケーリング済み季節補正（管理強度適用済み）
         raw_weights = [
             gp_ratio * season_factor
-            for gp_ratio, season_factor in zip(gp_ratios, season_factors)
+            for gp_ratio, season_factor in zip(gp_ratios, scaled_season)
         ]
         
         # ② GP制御を適用（GPを上限リミッターとして使用）
         gp_controlled = apply_gp_control(raw_weights, gp_values)
-        
-        # ③ PGR制御を適用（刈粕抑制）
-        pgr_controlled = apply_pgr_control(gp_controlled, gp_values, pgr_level)
-        
-        # ④ 正規化（合計=1.0）
-        total = sum(pgr_controlled)
-        if total == 0:
-            return [1.0 / 12] * 12
-        
-        monthly_ratios = [w / total for w in pgr_controlled]
-        
-        # 検証：3-6月の合計比率を確認（目標：0.6以上、可能なら0.65前後）
-        # このチェックは係数調整の妥当性確認であり、強制制約にはしない
-        spring_to_june_ratio = sum(monthly_ratios[i] for i in [2, 3, 4, 5])  # 3-6月（0-indexed: 2-5）
-        # デバッグ用：必要に応じてコメントアウトを外す
-        # print(f"DEBUG: 3-6月の配分比率 = {spring_to_june_ratio:.3f} (目標: 0.60-0.70)")
-        
-        return monthly_ratios
+    
+    # ── 負値クリップ + 正規化（全配分方法共通） ──
+    clamped = [max(0.0, w) for w in gp_controlled]
+    total = sum(clamped)
+    if total == 0:
+        return [1.0 / 12] * 12
+    monthly_ratios = [w / total for w in clamped]
+    
+    assert all(v >= 0 for v in monthly_ratios), \
+        f"配分係数に負値が含まれています: {monthly_ratios}"
+    
+    return monthly_ratios
 
 
 def calculate_monthly_fertilizer_distribution(
@@ -585,33 +507,25 @@ def calculate_monthly_fertilizer_distribution(
     stance: str,
     management_intensity: str = "中",  # 管理強度
     gp_values: List[float] = None,  # 月別GP値（GP制御用）
-    pgr_level: int = 0,  # PGR強度（0-3、デフォルト：0=使用なし）
-    apply_pgr_to_n_only: bool = True  # PGRは窒素配分にのみ影響（デフォルト：True）
 ) -> List[float]:
     """
     年間施肥量を月別に配分
     
-    処理順序（最終形・確定）：
+    処理順序：
     ① GP（月別）
-    ② 季節係数
+    ② 季節係数（春重点スケーリング適用）
     ③ 管理強度（春ピーク）
     ④ GP制御（生理的上限）
-    ⑤ PGR制御（刈粕抑制）
-    ⑥ 正規化
-    
-    PGRは最後に入れる
-    「人為的管理」を最終判断にする
+    ⑤ 正規化
     
     Args:
         annual_amount: 年間施肥量（kg/ha）
         gp_ratios: 正規化されたGP比率
         grass_type: 芝種区分
         usage_type: 利用形態
-        stance: 配分スタンス
+        stance: 配分スタンス（"春重点70", "春重点50", "春重点30", "GP準拠"）
         management_intensity: 管理強度（"低", "中", "高"）
         gp_values: 月別GP値（0.0〜1.0、GP制御用）
-        pgr_level: PGR強度（0-3）
-        apply_pgr_to_n_only: PGRは窒素配分にのみ影響（P, K, Ca, Mgは影響なし）
     
     Returns:
         12ヶ月分の月別施肥量（kg/ha）
@@ -626,13 +540,15 @@ def calculate_monthly_fertilizer_distribution(
             gp_values = [0.5] * 12  # デフォルト
     
     # 季節補正係数を取得（春重点の場合は強化版を使用、管理強度を反映）
+    # 春重点70/50/30 → いずれも "春重点" として季節係数を取得
+    base_stance = "春重点" if stance.startswith("春重点") else stance
     season_factors = get_season_factors(
-        grass_type, usage_type, stance, use_heavy=True, management_intensity=management_intensity
+        grass_type, usage_type, base_stance, use_heavy=True, management_intensity=management_intensity
     )
     
-    # 月別配分比率を計算（GP制御 + PGR制御を含む）
+    # 月別配分比率を計算（GP制御を含む）
     monthly_ratios = calculate_monthly_distribution_ratios(
-        gp_ratios, season_factors, stance, gp_values, pgr_level
+        gp_ratios, season_factors, stance, gp_values
     )
     
     # 年間量を配分

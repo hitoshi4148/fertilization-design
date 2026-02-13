@@ -31,14 +31,6 @@ class ManagementIntensity(str, Enum):
     HIGH = "高"
 
 
-class PGRIntensity(str, Enum):
-    """植物成長調整剤（PGR）強度"""
-    NONE = "なし"
-    WEAK = "弱"
-    MEDIUM = "中"
-    STRONG = "強"
-
-
 class FertilizerStance(str, Enum):
     """施肥スタンス"""
     LOWER = "下限寄り"
@@ -83,14 +75,6 @@ ANNUAL_N_REQUIREMENT: Dict[Tuple[GrassType, UsageType, ManagementIntensity], flo
     (GrassType.WOS, UsageType.GOLF, ManagementIntensity.LOW): 160.0,
     (GrassType.WOS, UsageType.GOLF, ManagementIntensity.MEDIUM): 200.0,
     (GrassType.WOS, UsageType.GOLF, ManagementIntensity.HIGH): 250.0,
-}
-
-# PGRによるN要求量減衰率
-PGR_REDUCTION_RATE: Dict[PGRIntensity, float] = {
-    PGRIntensity.NONE: 1.0,
-    PGRIntensity.WEAK: 0.9,
-    PGRIntensity.MEDIUM: 0.8,
-    PGRIntensity.STRONG: 0.7,
 }
 
 # 施肥スタンスによる補正係数（MSLN〜SLAN内の位置）

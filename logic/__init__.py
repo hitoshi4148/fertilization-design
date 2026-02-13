@@ -6,7 +6,6 @@ from .constants import (
     GrassType,
     UsageType,
     ManagementIntensity,
-    PGRIntensity,
     FertilizerStance,
 )
 from .gp import calculate_growth_potential, calculate_growth_potentials
@@ -16,7 +15,6 @@ __all__ = [
     "GrassType",
     "UsageType",
     "ManagementIntensity",
-    "PGRIntensity",
     "FertilizerStance",
     "calculate_growth_potential",
     "calculate_growth_potentials",
