@@ -1,7 +1,11 @@
 import io
 import math
 import base64
+import re
+from pathlib import Path
+
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 import pandas as pd
 import altair as alt
@@ -11,12 +15,79 @@ from logic.monthly_distribution import (
     get_season_factors,
 )
 
+# ── Google Analytics（gtag）: <head> 直後に相当する位置への埋め込み ──
+# Streamlit にはカスタム head がないため、起動時に static/index.html を1回だけ修正する。
+# 書き込み不可の環境では iframe 経由で親 document.head へ注入するフォールバックを使う。
+_GA_MEASUREMENT_ID = "G-KQ7S0XT9JP"
+_GOOGLE_TAG_SNIPPET = f"""<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id={_GA_MEASUREMENT_ID}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){{dataLayer.push(arguments);}}
+  gtag('js', new Date());
+
+  gtag('config', '{_GA_MEASUREMENT_ID}');
+</script>"""
+
+
+def _inject_google_tag_into_streamlit_index_html() -> bool:
+    """Streamlit パッケージ内 index.html の <head> 直後に gtag を埋め込む（重複挿入しない）。"""
+    try:
+        index_path = Path(st.__file__).resolve().parent / "static" / "index.html"
+        text = index_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    if _GA_MEASUREMENT_ID in text:
+        return True
+    m = re.search(r"<head[^>]*>", text, flags=re.IGNORECASE)
+    if not m:
+        return False
+    insert_at = m.end()
+    new_text = text[:insert_at] + "\n" + _GOOGLE_TAG_SNIPPET + "\n" + text[insert_at:]
+    try:
+        index_path.write_text(new_text, encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+_GA_INDEX_PATCH_OK = _inject_google_tag_into_streamlit_index_html()
+
 # ページ設定（最初のStreamlitコマンドでなければならない）
 st.set_page_config(
     page_title="芝しごと・施肥設計ナビ",
     page_icon="🌱",
     layout="wide",
 )
+
+if not _GA_INDEX_PATCH_OK:
+    # index.html が書き換えられない環境向け
+    if "_ga_parent_head_injection" not in st.session_state:
+        st.session_state["_ga_parent_head_injection"] = True
+        components.html(
+            f"""
+<script>
+try {{
+  var w = window.parent;
+  if (!w || w === window) throw new Error("no parent");
+  var d = w.document;
+  if (d.getElementById("st-ga-gtag")) {{}}
+  else {{
+    var ext = d.createElement("script");
+    ext.id = "st-ga-gtag-ext";
+    ext.async = true;
+    ext.src = "https://www.googletagmanager.com/gtag/js?id={_GA_MEASUREMENT_ID}";
+    d.head.appendChild(ext);
+    var inl = d.createElement("script");
+    inl.id = "st-ga-gtag";
+    inl.text = "\\n  window.dataLayer = window.dataLayer || [];\\n  function gtag(){{dataLayer.push(arguments);}}\\n  gtag('js', new Date());\\n  gtag('config', '{_GA_MEASUREMENT_ID}');\\n";
+    d.head.appendChild(inl);
+  }}
+}} catch (e) {{}}
+</script>
+""",
+            height=0,
+        )
 
 # CSS読み込み（1回だけ）
 css_path = os.path.join(os.path.dirname(__file__), "style.css")
