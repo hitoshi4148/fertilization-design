@@ -453,34 +453,25 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ── バナー表示（mailto リンク付き） ──
-_BANNER_MAILTO = "mailto:growthandprogress4148@gmail.com?subject=%E3%83%90%E3%83%8A%E3%83%BC%E5%BA%83%E5%91%8A%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6"
-banner_728 = os.path.join(os.path.dirname(__file__), "banner_ad_recruitment_728x90.jpg")
-banner_300 = os.path.join(os.path.dirname(__file__), "banner_ad_recruitment_300x250.jpg")
+# ── バナー表示（新規タブでサービスページへ） ──
+_BANNER_PR_URL = "https://www.turf-tools.jp/services-4"
+banner_pr = os.path.join(os.path.dirname(__file__), "banner_pr_size1.png")
+
 
 def _img_to_base64(path: str) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
-col_banner_wide, col_banner_sq = st.columns([3, 1])
-with col_banner_wide:
-    if os.path.exists(banner_728):
-        b64 = _img_to_base64(banner_728)
-        st.markdown(
-            f'<a href="{_BANNER_MAILTO}">'
-            f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;" />'
-            f'</a>',
-            unsafe_allow_html=True,
-        )
-with col_banner_sq:
-    if os.path.exists(banner_300):
-        b64 = _img_to_base64(banner_300)
-        st.markdown(
-            f'<a href="{_BANNER_MAILTO}">'
-            f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;" />'
-            f'</a>',
-            unsafe_allow_html=True,
-        )
+
+if os.path.exists(banner_pr):
+    b64 = _img_to_base64(banner_pr)
+    st.markdown(
+        f'<a href="{_BANNER_PR_URL}" target="_blank" rel="noopener noreferrer">'
+        f'<img src="data:image/png;base64,{b64}" alt="PRバナー" '
+        f'style="width:auto;height:auto;max-width:100%;display:block;" />'
+        f"</a>",
+        unsafe_allow_html=True,
+    )
 
 st.markdown("## 基本条件（設計前提）")
 
