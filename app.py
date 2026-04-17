@@ -463,6 +463,22 @@ def _img_to_base64(path: str) -> str:
         return base64.b64encode(f.read()).decode()
 
 
+def _linked_png_banner_markup(
+    path: str, url: str, alt: str, width_px: int, height_px: int
+) -> str:
+    """リンク付きバナー1枚分の HTML 断片（存在しないパスは空文字）。"""
+    if not os.path.exists(path):
+        return ""
+    b64 = _img_to_base64(path)
+    return (
+        f'<a href="{url}" target="_blank" rel="noopener noreferrer" style="flex-shrink:0;line-height:0;">'
+        f'<img src="data:image/png;base64,{b64}" alt="{alt}" '
+        f'width="{width_px}" height="{height_px}" '
+        f'style="width:{width_px}px;height:{height_px}px;object-fit:contain;display:block;" />'
+        f"</a>"
+    )
+
+
 if os.path.exists(banner_pr):
     b64 = _img_to_base64(banner_pr)
     st.markdown(
@@ -470,6 +486,26 @@ if os.path.exists(banner_pr):
         f'<img src="data:image/png;base64,{b64}" alt="PRバナー" '
         f'style="width:auto;height:auto;max-width:100%;display:block;" />'
         f"</a>",
+        unsafe_allow_html=True,
+    )
+
+# ── ブログ / YouTube バナー（600×200 原画を 300×100、横に密着配置） ──
+_BLOG_BANNER_URL = "https://www.turf-tools.jp/blog"
+_YOUTUBE_BANNER_URL = "https://www.youtube.com/channel/UCSRU0zk4Fj1ETWqMRlJDPJQ"
+banner_blog = os.path.join(os.path.dirname(__file__), "bloglink.png")
+banner_youtube = os.path.join(os.path.dirname(__file__), "youtubelink.png")
+_row_banners = [
+    _linked_png_banner_markup(banner_blog, _BLOG_BANNER_URL, "芝管理技術ブログ", 300, 100),
+    _linked_png_banner_markup(
+        banner_youtube, _YOUTUBE_BANNER_URL, "グロウアンドプログレス YouTube", 300, 100
+    ),
+]
+_row_banners = [h for h in _row_banners if h]
+if _row_banners:
+    st.markdown(
+        '<div style="display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;">'
+        + "".join(_row_banners)
+        + "</div>",
         unsafe_allow_html=True,
     )
 
