@@ -1,71 +1,51 @@
 import io
-import math
 import base64
-import re
-from pathlib import Path
+import os
 
 import streamlit as st
 import streamlit.components.v1 as components
-import os
 import pandas as pd
 import altair as alt
 
-from logic.monthly_distribution import (
-    calculate_monthly_distribution_ratios,
-    get_season_factors,
+from logic.design_service import (
+    DesignInputs,
+    NasaPowerError,
+    compute_gp_distribution_from_nasa,
+    last_calendar_year,
+    run_design_with_gp,
+)
+from logic.gp_daily import MONTHS_LABEL
+from logic.pdf_import import extract_soil_from_pdf
+from logic.soil_evaluation import ElementEvaluation
+from ui.prefs import (
+    apply_geolocation_from_query,
+    create_cookie_manager,
+    load_prefs_from_cookies,
+    render_geolocation_trigger,
+    save_prefs_to_cookies,
 )
 
-# ── Google Analytics（gtag）: <head> 直後に相当する位置への埋め込み ──
-# Streamlit にはカスタム head がないため、起動時に static/index.html を1回だけ修正する。
-# 書き込み不可の環境では iframe 経由で親 document.head へ注入するフォールバックを使う。
-_GA_MEASUREMENT_ID = "G-KQ7S0XT9JP"
-_GOOGLE_TAG_SNIPPET = f"""<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id={_GA_MEASUREMENT_ID}"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){{dataLayer.push(arguments);}}
-  gtag('js', new Date());
+_GA_MEASUREMENT_ID = os.environ.get("GA_MEASUREMENT_ID", "").strip()
 
-  gtag('config', '{_GA_MEASUREMENT_ID}');
-</script>"""
+TURF_OPTIONS = ["寒地型芝", "暖地型芝", "日本芝", "ウィンターオーバーシード（WOS）"]
+DIST_OPTIONS = ["春重点70", "春重点50", "春重点30", "GP準拠"]
+DIST_LABELS = {
+    "春重点70": "春重点70%",
+    "春重点50": "春重点50%（おすすめ）",
+    "春重点30": "春重点30%",
+    "GP準拠": "GP準拠",
+}
 
 
-def _inject_google_tag_into_streamlit_index_html() -> bool:
-    """Streamlit パッケージ内 index.html の <head> 直後に gtag を埋め込む（重複挿入しない）。"""
-    try:
-        index_path = Path(st.__file__).resolve().parent / "static" / "index.html"
-        text = index_path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if _GA_MEASUREMENT_ID in text:
-        return True
-    m = re.search(r"<head[^>]*>", text, flags=re.IGNORECASE)
-    if not m:
-        return False
-    insert_at = m.end()
-    new_text = text[:insert_at] + "\n" + _GOOGLE_TAG_SNIPPET + "\n" + text[insert_at:]
-    try:
-        index_path.write_text(new_text, encoding="utf-8")
-    except OSError:
-        return False
-    return True
-
-
-_GA_INDEX_PATCH_OK = _inject_google_tag_into_streamlit_index_html()
-
-# ページ設定（最初のStreamlitコマンドでなければならない）
-st.set_page_config(
-    page_title="芝しごと・施肥設計ナビ",
-    page_icon="🌱",
-    layout="wide",
-)
-
-if not _GA_INDEX_PATCH_OK:
-    # index.html が書き換えられない環境向け
-    if "_ga_parent_head_injection" not in st.session_state:
-        st.session_state["_ga_parent_head_injection"] = True
-        components.html(
-            f"""
+def _inject_google_analytics() -> None:
+    if not _GA_MEASUREMENT_ID:
+        return
+    if st.session_state.get("_ga_parent_head_injection"):
+        return
+    st.session_state["_ga_parent_head_injection"] = True
+    ga_id = _GA_MEASUREMENT_ID
+    components.html(
+        f"""
 <script>
 try {{
   var w = window.parent;
@@ -76,822 +56,144 @@ try {{
     var ext = d.createElement("script");
     ext.id = "st-ga-gtag-ext";
     ext.async = true;
-    ext.src = "https://www.googletagmanager.com/gtag/js?id={_GA_MEASUREMENT_ID}";
+    ext.src = "https://www.googletagmanager.com/gtag/js?id={ga_id}";
     d.head.appendChild(ext);
     var inl = d.createElement("script");
     inl.id = "st-ga-gtag";
-    inl.text = "\\n  window.dataLayer = window.dataLayer || [];\\n  function gtag(){{dataLayer.push(arguments);}}\\n  gtag('js', new Date());\\n  gtag('config', '{_GA_MEASUREMENT_ID}');\\n";
+    inl.text = "\\n  window.dataLayer = window.dataLayer || [];\\n  function gtag(){{dataLayer.push(arguments);}}\\n  gtag('js', new Date());\\n  gtag('config', '{ga_id}');\\n";
     d.head.appendChild(inl);
   }}
 }} catch (e) {{}}
 </script>
 """,
-            height=0,
-        )
-
-# CSS読み込み（1回だけ）
-css_path = os.path.join(os.path.dirname(__file__), "style.css")
-with open(css_path, encoding="utf-8") as f:
-    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+        height=0,
+    )
 
 
-ELEMENTS = {
-    "N": {
-        "mlsn": 5.0,
-        "slan": 15.0,
-    },
-    "P": {
-        "mlsn": 1.0,
-        "slan": 3.0,
-    },
-    "K": {
-        "mlsn": 15.0,
-        "slan": 25.0,
-    },
-}
-
-# 仮換算係数（後で必ず差し替える）
-MG100G_TO_KG10A = 0.15
-
-FERTILIZERS = {
-    "N": {
-        "name": "硫安",
-        "nutrient": "N",
-        "rate": 0.21,   # N含有率
-    },
-    "P": {
-        "name": "過リン酸石灰",
-        "nutrient": "P2O5",
-        "rate": 0.17,
-    },
-    "K": {
-        "name": "塩化カリ",
-        "nutrient": "K2O",
-        "rate": 0.60,
-    },
-}
-
-fert_results = {}
-
-# ── 月順ラベル（暦年 1月〜12月 固定） ──
-MONTHS_LABEL = ["1月", "2月", "3月", "4月", "5月", "6月",
-                "7月", "8月", "9月", "10月", "11月", "12月"]
+def _clear_gp_and_design() -> None:
+    st.session_state["gp_result"] = None
+    st.session_state["gp_snapshot"] = None
+    st.session_state["design_result"] = None
+    st.session_state["nasa_error"] = None
 
 
-def judge_status(value, mlsn, slan):
-    """
-    数値と基準値から状態を判定する
-    戻り値: "不足" / "適正" / "過剰"
-    """
-    if value < mlsn:
-        return "不足"
-    elif value > slan:
-        return "過剰"
+def _snapshot_matches(lat: float, lon: float, turf: str) -> bool:
+    snap = st.session_state.get("gp_snapshot")
+    if not snap:
+        return False
+    return (
+        abs(lat - snap["lat"]) < 1e-6
+        and abs(lon - snap["lon"]) < 1e-6
+        and turf == snap["turf"]
+    )
+
+
+def render_soil_eval(ev: ElementEvaluation) -> None:
+    if ev.status == "不足":
+        box_color, status_label = "#fff3f3", "⚠️ 不足"
+    elif ev.status == "過剰":
+        box_color, status_label = "#fffff0", "⚡ 過剰"
     else:
-        return "適正"
+        box_color, status_label = "#f0fff0", "✅ 適正"
 
-def calc_deficit(value, mlsn):
-    return max(0, mlsn - value)
-
-
-
-# ④ コメント生成関数（★ここが正解）
-def comment_template(status, name):
-    """
-    評価結果に応じた簡単なコメントを返す
-    status: "不足" / "適正" / "過剰"
-    name: 要素名 (N, P, K, Ca, Mg など)
-    """
-    if status == "不足":
-        return f"土壌中の{name}は、目安とする範囲を下回っています。"
-    elif status == "適正":
-        return f"土壌中の{name}は、概ね適正な範囲にあります。"
-    else:  # 過剰
-        return f"土壌中の{name}は、目安とする範囲を上回っています。"
-
-
-def render_soil_eval(name, value, mlsn, slan):
-    """要素ごとの土壌評価を表示する"""
-
-    # ── 1. 判定 ──
-    status = judge_status(value, mlsn, slan)
-
-    # ── 2. 表示変数の設定 ──
-    if status == "不足":
-        box_color    = "#fff3f3"
-        status_label = "⚠️ 不足"
-    elif status == "過剰":
-        box_color    = "#fffff0"
-        status_label = "⚡ 過剰"
-    else:
-        box_color    = "#f0fff0"
-        status_label = "✅ 適正"
-
-    warning_text = ""
-    comment      = comment_template(status, name)
-    meaning_text = ""
-    action       = ""
-    deficit_text = ""
-    fert_text    = ""
-    monthly_plan = None
-    monthly_text = ""
-
-    # ── 3. 不足時：補正量の算出と登録 ──
-    if status == "不足":
-        deficit        = max(0.0, mlsn - value)
-        deficit_kg_10a = max(0.0, deficit * MG100G_TO_KG10A)
-        fert_kg        = calc_fertilizer_amount(deficit_kg_10a, name)
-        warning_text   = (
+    warning_text, deficit_text, fert_text = "", "", ""
+    if ev.status == "不足":
+        warning_text = (
             "⚠️ この項目は目安値を下回っています。"
             "早めの対応を検討してください。<br>"
         )
-        deficit_text = f"不足量（目安）：{deficit:.1f} mg/100g<br>"
-
-        if fert_kg is not None and name in ["N", "P", "K"]:
-            fert_results[name] = fert_kg
-            monthly_plan = split_by_month(fert_kg, name)
+        deficit_text = f"不足量（目安）：{ev.deficit_mg:.1f} mg/100g<br>"
+        if ev.fert_kg_10a is not None and ev.fertilizer_name:
+            # 1 kg / 10a = 1 g / ㎡
             fert_text = (
-                f"肥料換算（{FERTILIZERS[name]['name']}）："
-                f"{fert_kg:.2f} kg / 10a<br>"
+                f"肥料換算（{ev.fertilizer_name}）："
+                f"{ev.fert_kg_10a:.2f} g / ㎡<br>"
             )
-    else:
-        deficit = 0.0
-        fert_kg = None
 
-    # ── 4. 月別配分テキストの生成・テーブル表示 ──
-    if monthly_plan is not None:
-        # 月順を 1〜12 で明示的に固定
-        ordered_months = [str(m) for m in range(1, 13)]
-        monthly_text = "<br>".join(
-            [f"{m}月：{monthly_plan.get(m, 0.0):.2f} kg / 10a" for m in ordered_months]
-        )
-
+    if ev.monthly_plan is not None:
         df_monthly = pd.DataFrame({
             "月": MONTHS_LABEL,
-            "施肥量（kg / 10a）": [round(monthly_plan.get(str(m), 0.0), 2) for m in range(1, 13)],
+            "施肥量（g / ㎡）": [
+                round(ev.monthly_plan.get(str(m), 0.0), 2) for m in range(1, 13)
+            ],
         })
-        st.subheader(f"月別施肥配分({name})")
-        st.caption("※ 単位：kg / 10a（月別の施肥量）")
+        st.subheader(f"月別施肥配分({ev.name})")
+        st.caption("※ 単位：g / ㎡（月別の施肥量）")
         st.dataframe(df_monthly)
-        st.caption(
-            "※ 表示されている施肥量は 10a あたり・月別の目安量です。"
-            "芝種・利用強度・天候条件により調整してください。"
-        )
-
-    # ── 5. メインボックスの描画 ──
-#    monthly_section = (
-#        f'<br><strong>月別配分（目安）</strong><br>{monthly_text}'
-#        if name == "N" and status == "不足"
-#        else ""
-#    )
 
     st.markdown(
         f"""
-<div style="
-    background-color:{box_color};
-    padding:12px;
-    border-radius:8px;
-    margin-bottom:12px;
-">
-<strong>{name}</strong><br>
-判定：{status_label}<br><br>
-{warning_text}
-{comment}
-{deficit_text}
-<em>{meaning_text}</em>
+<div style="background-color:{box_color};padding:12px;border-radius:8px;margin-bottom:12px;">
+<strong>{ev.name}</strong><br>判定：{status_label}<br><br>
+{warning_text}{ev.comment}{deficit_text}
 <hr style="border:none;border-top:1px solid #ccc;">
-<strong>設計上の考え方</strong><br>
-{action}
-{fert_text}
+<strong>設計上の考え方</strong><br>{fert_text}
 </div>
 """,
-        unsafe_allow_html=True
-    )
-
-def calc_fertilizer_amount(deficit_kg, elem):
-    """
-    deficit_kg : 不足成分量（kg/10a）
-    elem        : "N" / "P" / "K"
-    """
-    fert = FERTILIZERS.get(elem)
-    if fert is None:
-        return None
-
-    rate = fert["rate"]
-    return deficit_kg / rate
-
-def split_by_month(total_kg_10a, _elem=None):
-    """年間施肥量をGP配分比率で12ヶ月に配分する。
-    monthly_dist_ratios はGP計算後に設定されるグローバル変数。
-    """
-    return {str(m + 1): total_kg_10a * monthly_dist_ratios[m] for m in range(12)}
-
-
-def render_ca_mg_ratio(ca, mg):
-    if mg <= 0:
-        st.markdown("""
-**Ca : Mg 比**
-
-- Ca : Mg = 不明  
-- 設計上の考え方：Mg が未測定のため、推定モードで評価します。
-""")
-        return
-
-    ratio = ca / mg
-
-    if ratio < 10:
-        comment = "Mg 優位です。通気性や軟らかさを意識した管理が必要です。"
-    elif ratio > 30:
-        comment = "Ca が優位です。表層の締まりや乾きやすさに留意してください。"
-    else:
-        comment = "Ca と Mg のバランスは概ね良好です。"
-
-    st.markdown(f"""
-**Ca : Mg 比**
-
-- Ca : Mg = {ratio:.1f}
-
-**設計上の考え方**  
-{comment}
-""")
-
-
-# ============================================================
-# Growth Potential（GP）算出関数
-# ============================================================
-
-def estimate_temperature(day, latitude):
-    """
-    緯度から仮想的な年間気温カーブを生成する。
-    T(d) = T_mean + A * sin(2π * (d - φ) / 365)
-
-    ・T_mean : 年平均気温（緯度から簡易推定）
-    ・A       : 年較差の半分（緯度から簡易推定）
-    ・φ       : 位相（日本国内では定数: 最高気温が8月上旬に来るよう設定）
-    ※ 実測値ではなく「地点の気候的傾向」を表すためのモデル
-    """
-    t_mean    = 36.0 - 0.6 * latitude
-    amplitude = 0.35 * latitude - 2.5
-    phase     = 121  # sin ピークが day≒212（8月上旬）になる位相
-
-    return t_mean + amplitude * math.sin(2 * math.pi * (day - phase) / 365)
-
-
-def gp_cool(temp):
-    """寒地型芝の GP（気温応答関数）"""
-    if temp <= 0:
-        return 0.0
-    elif temp <= 20:
-        return temp / 20.0
-    elif temp < 35:
-        return (35.0 - temp) / 15.0
-    else:
-        return 0.0
-
-
-def gp_warm(temp):
-    """暖地型芝の GP（気温応答関数）"""
-    if temp <= 10:
-        return 0.0
-    elif temp <= 30:
-        return (temp - 10.0) / 20.0
-    elif temp < 45:
-        return (45.0 - temp) / 15.0
-    else:
-        return 0.0
-
-
-def weight_cool(temp):
-    """WOS 時の寒地型寄与率 w(T)"""
-    if temp <= 12:
-        return 1.0
-    elif temp < 22:
-        return (22.0 - temp) / 10.0
-    else:
-        return 0.0
-
-
-def calculate_daily_gp(latitude, turf_type):
-    """
-    365 日分の GP を算出する。
-    戻り値: list[float]（長さ 365）
-    """
-    daily_gp = []
-    for day in range(1, 366):
-        temp = estimate_temperature(day, latitude)
-
-        if turf_type == "寒地型芝":
-            gp = gp_cool(temp)
-        elif turf_type in ("暖地型芝", "日本芝"):
-            gp = gp_warm(temp)
-        elif turf_type == "ウィンターオーバーシード（WOS）":
-            w = weight_cool(temp)
-            gp = w * gp_cool(temp) + (1 - w) * gp_warm(temp)
-        else:
-            gp = 0.0
-
-        daily_gp.append(gp)
-
-    return daily_gp
-
-
-def monthly_gp_averages(daily_gp):
-    """
-    365 日分の GP を月別平均に集約する。
-    戻り値: dict（キー "1"〜"12"、値: 月平均 GP）
-    """
-    month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    monthly = {}
-    start = 0
-    for m, days in enumerate(month_days, 1):
-        end = start + days
-        monthly[str(m)] = sum(daily_gp[start:end]) / days
-        start = end
-    return monthly
-
-
-# ============================================================
-# URL クエリパラメータからの復元（ページ再読み込み時）
-# ============================================================
-TURF_OPTIONS = ["寒地型芝", "暖地型芝", "日本芝", "ウィンターオーバーシード（WOS）"]
-DIST_OPTIONS = ["春重点70", "春重点50", "春重点30", "GP準拠"]
-DIST_LABELS = {
-    "春重点70": "春重点70%",
-    "春重点50": "春重点50%（おすすめ）",
-    "春重点30": "春重点30%",
-    "GP準拠": "GP準拠",
-}
-
-qp = st.query_params
-
-if "lat" in qp and "geo_lat" not in st.session_state:
-    try:
-        _lat = float(qp["lat"])
-        if 20.0 <= _lat <= 50.0:
-            st.session_state["geo_lat"] = _lat
-    except (ValueError, TypeError):
-        pass
-
-if "lon" in qp and "geo_lon" not in st.session_state:
-    try:
-        _lon = float(qp["lon"])
-        if 120.0 <= _lon <= 155.0:
-            st.session_state["geo_lon"] = _lon
-    except (ValueError, TypeError):
-        pass
-
-if "turf" in qp:
-    st.session_state.setdefault("qp_turf", qp["turf"])
-
-if "dist" in qp:
-    st.session_state.setdefault("qp_dist", qp["dist"])
-
-st.title("芝しごと・施肥設計ナビ")
-
-st.markdown(
-    '<div class="subtitle">— グリーンキーパーのための土壌分析ベース施肥設計 —</div>',
-    unsafe_allow_html=True
-)
-
-# ── バナー表示（新規タブでサービスページへ） ──
-_BANNER_PR_URL = "https://www.turf-tools.jp/services-4"
-banner_pr = os.path.join(os.path.dirname(__file__), "banner_pr_size1.png")
-
-
-def _img_to_base64(path: str) -> str:
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
-
-
-def _linked_png_banner_markup(
-    path: str, url: str, alt: str, width_px: int, height_px: int
-) -> str:
-    """リンク付きバナー1枚分の HTML 断片（存在しないパスは空文字）。"""
-    if not os.path.exists(path):
-        return ""
-    b64 = _img_to_base64(path)
-    return (
-        f'<a href="{url}" target="_blank" rel="noopener noreferrer" style="flex-shrink:0;line-height:0;">'
-        f'<img src="data:image/png;base64,{b64}" alt="{alt}" '
-        f'width="{width_px}" height="{height_px}" '
-        f'style="width:{width_px}px;height:{height_px}px;object-fit:contain;display:block;" />'
-        f"</a>"
-    )
-
-
-if os.path.exists(banner_pr):
-    b64 = _img_to_base64(banner_pr)
-    st.markdown(
-        f'<a href="{_BANNER_PR_URL}" target="_blank" rel="noopener noreferrer">'
-        f'<img src="data:image/png;base64,{b64}" alt="PRバナー" '
-        f'style="width:auto;height:auto;max-width:100%;display:block;" />'
-        f"</a>",
         unsafe_allow_html=True,
     )
 
-# ── ブログ / YouTube バナー（600×200 原画を 300×100、横に密着配置） ──
-_BLOG_BANNER_URL = "https://www.turf-tools.jp/blog"
-_YOUTUBE_BANNER_URL = "https://www.youtube.com/channel/UCSRU0zk4Fj1ETWqMRlJDPJQ"
-banner_blog = os.path.join(os.path.dirname(__file__), "bloglink.png")
-banner_youtube = os.path.join(os.path.dirname(__file__), "youtubelink.png")
-_row_banners = [
-    _linked_png_banner_markup(banner_blog, _BLOG_BANNER_URL, "芝管理技術ブログ", 300, 100),
-    _linked_png_banner_markup(
-        banner_youtube, _YOUTUBE_BANNER_URL, "グロウアンドプログレス YouTube", 300, 100
-    ),
-]
-_row_banners = [h for h in _row_banners if h]
-if _row_banners:
-    st.markdown(
-        '<div style="display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;">'
-        + "".join(_row_banners)
-        + "</div>",
-        unsafe_allow_html=True,
-    )
 
-st.markdown("## 基本条件（設計前提）")
+def render_pdf_soil_importer() -> None:
+    # ファイル選択後に操作ボタンが隠れないよう、既定で展開しておく
+    with st.expander("📄 土壌分析PDFを読み込む（フェーズ1）", expanded=True):
+        st.caption(
+            "対応形式: 形式A（mg/100g計量表）, 形式B（PPM→mg/100g）, 形式C（JA診断処方箋）。"
+            "未対応PDFは手入力での対応をお願いします。"
+        )
+        up = st.file_uploader("PDFファイル", type=["pdf"], accept_multiple_files=False)
+        if not up:
+            return
+        if st.button("🔍 PDFから候補値を抽出する", type="primary"):
+            try:
+                st.session_state["pdf_extract"] = extract_soil_from_pdf(up.getvalue())
+                st.session_state["pdf_extract_error"] = None
+            except Exception as exc:
+                st.session_state["pdf_extract"] = None
+                st.session_state["pdf_extract_error"] = str(exc)
 
-with st.container():
-    _turf_default = st.session_state.get("qp_turf", TURF_OPTIONS[0])
-    _turf_index = TURF_OPTIONS.index(_turf_default) if _turf_default in TURF_OPTIONS else 0
-    turf_type = st.selectbox("芝種", TURF_OPTIONS, index=_turf_index)
+        err = st.session_state.get("pdf_extract_error")
+        if err:
+            st.error(f"PDFの解析に失敗しました: {err}")
+            return
 
-    management_target = st.selectbox(
-        "管理対象",
-        ["競技場", "ゴルフグリーン", "フェアウェイ"]
-    )
+        ex = st.session_state.get("pdf_extract")
+        if not ex:
+            return
 
-    latitude = st.number_input(
-        "緯度",
-        min_value=20.0,
-        max_value=50.0,
-        value=st.session_state.get("geo_lat", 35.0),
-        step=0.1
-    )
+        st.write(f"判定: **{ex.template_label}**")
+        for note in ex.notes:
+            st.caption(note)
 
-    longitude = st.number_input(
-        "経度",
-        min_value=120.0,
-        max_value=155.0,
-        value=st.session_state.get("geo_lon", 139.0),
-        step=0.1
-    )
+        if not ex.fields:
+            st.warning("読み取れる項目が見つかりませんでした。")
+            return
 
-with st.container():
-    _dist_default = st.session_state.get("qp_dist", "春重点50")
-    if _dist_default not in DIST_OPTIONS:
-        _dist_default = "春重点50"
-    _dist_index = DIST_OPTIONS.index(_dist_default)
-    allocation_method = st.radio(
-        "🌱 配分方法（GP基準）",
-        DIST_OPTIONS,
-        index=_dist_index,
-        format_func=lambda x: DIST_LABELS.get(x, x),
-    )
+        df = pd.DataFrame(ex.as_rows())
+        st.dataframe(df, use_container_width=True)
 
-    _mlsn_options = ["下限寄り", "中央", "上限寄り"]
-    _mlsn_labels = {
-        "下限寄り": "下限寄り（MLSN重視）",
-        "中央": "中央",
-        "上限寄り": "上限寄り（SLAN重視）",
-    }
-    msl_slan_position = st.selectbox(
-        "🎯 土壌目標水準の選択",
-        _mlsn_options,
-        format_func=lambda x: _mlsn_labels.get(x, x),
-    )
-    st.caption("土壌診断値から不足量を算出する際の目標水準を選択します。")
+        if st.button("✅ 候補値を土壌入力欄へ反映する"):
+            soil = ex.as_soil_inputs()
+            if "N" in soil:
+                st.session_state["soil_no3"] = float(soil["N"])
+            if "NH4" in soil:
+                st.session_state["soil_nh4"] = float(soil["NH4"])
+            if "P" in soil:
+                st.session_state["soil_p2o5"] = float(soil["P"])
+            if "K" in soil:
+                st.session_state["soil_k2o"] = float(soil["K"])
+            if "Ca" in soil:
+                st.session_state["soil_ca"] = float(soil["Ca"])
+            if "Mg" in soil:
+                st.session_state["soil_mg"] = float(soil["Mg"])
+            st.success("土壌入力欄に反映しました。数値を確認してから次へ進んでください。")
 
-# ── 入力値を URL クエリパラメータに保存 ──
-st.query_params["lat"] = str(latitude)
-st.query_params["lon"] = str(longitude)
-st.query_params["turf"] = turf_type
-st.query_params["dist"] = allocation_method
 
-# 配分方法の説明文
-if allocation_method.startswith("春重点"):
-    _pct = allocation_method.replace("春重点", "")
-    st.caption(
-        f"春の気温上昇期に年間施肥量の約{_pct}%を配分し、"
-        "立ち上がりと被覆回復を重視する方法です。"
-        "GPに基づく季節補正を加えて月別に配分します。"
-    )
-elif allocation_method == "GP準拠":
-    st.caption(
-        "気温から算出した成長ポテンシャル（GP）に基づき、"
-        "芝の成長しやすさに応じて施肥量を配分します。"
-        "理論的ですが、気象データの品質に影響を受けます。"
-    )
-
-# ===== Growth Potential（GP）表示 =====
-st.subheader("Growth Potential（GP）")
-st.caption(
-    "GPは「その地点で、その芝がどれだけ生育できるか」を表す"
-    "相対指標（0〜1）です。緯度から推定した年間気温カーブと、"
-    "芝種ごとの気温応答関数から算出しています。"
-)
-
-daily_gp = calculate_daily_gp(latitude, turf_type)
-monthly_gp = monthly_gp_averages(daily_gp)
-
-# ── GP値のリスト化・配分比率の計算 ──
-gp_values_list = [monthly_gp[str(m)] for m in range(1, 13)]
-_gp_sum = sum(gp_values_list)
-gp_ratios_list = (
-    [v / _gp_sum for v in gp_values_list] if _gp_sum > 0 else [1.0 / 12] * 12
-)
-
-# 管理対象 → 利用形態に変換
-if "ゴルフ" in management_target or "フェアウェイ" in management_target:
-    _usage_type = "ゴルフ場"
-else:
-    _usage_type = "競技場"
-
-# 季節補正係数を取得（春重点70/50/30 → "春重点" で季節係数をルックアップ）
-_base_stance = "春重点" if allocation_method.startswith("春重点") else allocation_method
-_season_factors = get_season_factors(
-    turf_type, _usage_type, _base_stance,
-    use_heavy=True,
-)
-
-# 月別配分比率を計算（全要素共通、allocation_method が反映される）
-monthly_dist_ratios = calculate_monthly_distribution_ratios(
-    gp_ratios_list, _season_factors, allocation_method, gp_values_list
-)
-
-# ── 防御的正規化：負値クリップ＋合計 1.0 保証 ──
-monthly_dist_ratios = [max(0.0, r) for r in monthly_dist_ratios]
-_ratio_total = sum(monthly_dist_ratios)
-if _ratio_total > 0:
-    monthly_dist_ratios = [r / _ratio_total for r in monthly_dist_ratios]
-else:
-    monthly_dist_ratios = [1.0 / 12] * 12
-
-# ── GPチャート用 DataFrame ──
-gp_turf_labels = {
-    "寒地型芝": "寒地型GP",
-    "暖地型芝": "暖地型GP",
-    "日本芝": "日本芝GP",
-}
-
-if turf_type == "ウィンターオーバーシード（WOS）":
-    daily_cool = calculate_daily_gp(latitude, "寒地型芝")
-    daily_warm = calculate_daily_gp(latitude, "暖地型芝")
-    monthly_cool = monthly_gp_averages(daily_cool)
-    monthly_warm = monthly_gp_averages(daily_warm)
-
-    df_gp = pd.DataFrame({
-        "寒地型GP": [monthly_cool[str(m)] for m in range(1, 13)],
-        "暖地型GP": [monthly_warm[str(m)] for m in range(1, 13)],
-        "WOS（合成GP）": [monthly_gp[str(m)] for m in range(1, 13)],
-    }, index=MONTHS_LABEL)
-else:
-    label = gp_turf_labels.get(turf_type, turf_type)
-    df_gp = pd.DataFrame({
-        label: [monthly_gp[str(m)] for m in range(1, 13)],
-    }, index=MONTHS_LABEL)
-
-# ── 月順を明示的に 1月〜12月 で固定 ──
-df_gp = df_gp.reindex(MONTHS_LABEL)
-
-# ── 安全チェック：NaN / 全ゼロ / 空 ──
-if df_gp.empty:
-    st.error("⚠️ df_gp が空です。GP計算に問題がある可能性があります。")
-elif df_gp.isnull().any().any():
-    st.warning("⚠️ GP値に NaN が含まれています。緯度・芝種の設定を確認してください。")
-elif (df_gp == 0).all().any():
-    st.warning("⚠️ GP値がすべて 0 の列があります。緯度・芝種の設定を確認してください。")
-
-# ── Altair で GP グラフを描画（月順を明示的にカテゴリ制御） ──
-df_plot = df_gp.reset_index()
-df_plot.columns = ["月"] + list(df_gp.columns)
-
-# wide → long 形式に変換（複数系列に対応）
-df_long = df_plot.melt(id_vars="月", var_name="系列", value_name="GP")
-
-gp_chart = (
-    alt.Chart(df_long)
-    .mark_line(point=True)
-    .encode(
-        x=alt.X("月:N", sort=MONTHS_LABEL, title="月"),
-        y=alt.Y("GP:Q", scale=alt.Scale(domain=[0, 1]), title="Growth Potential"),
-        color=alt.Color("系列:N", title=""),
-    )
-    .properties(height=350)
-)
-st.altair_chart(gp_chart, use_container_width=True)
-
-st.dataframe(
-    df_gp.T.style.format("{:.2f}"),
-    use_container_width=True,
-)
-
-with st.expander("GPの設計思想について"):
+def render_design_philosophy_guide() -> None:
+    """月別施肥計画の下に表示する設計思想・用語の説明（旧版 UI の復元）。"""
+    st.markdown("---")
+    st.subheader("設計思想について")
     st.markdown("""
-**Growth Potential（GP）とは**
-
-GPは、気温に対する芝の生育応答を 0〜1 の相対値で表した指標です。
-施肥量を直接決定する数値ではなく、
-**生育の強弱や季節リズムを把握するための判断材料**として位置づけています。
-
-**算出の仕組み**
-
-1. **仮想年間気温カーブ**：緯度をもとに、平均的な年間気温推移を
-正弦波で近似しています（実測値ではなく、地点の気候的傾向を表すモデルです）。
-2. **芝種別GP関数**：寒地型芝は 0〜20℃ で上昇・20〜35℃ で低下、
-暖地型芝は 10〜30℃ で上昇・30〜45℃ で低下する応答関数を使用します。
-
-**WOS（ウィンターオーバーシード）の扱い**
-
-WOS は寒地型と暖地型の単純平均ではなく、
-**季節に応じた主役交代**として扱います。
-気温が低い時期は寒地型が主体、気温が高い時期は暖地型が主体となるよう、
-気温に応じた重み付き合成を行っています。
-""")
-
-st.subheader("2. 土壌分析値（mg/100g）")
-st.caption("※ 最新の土壌分析結果を入力してください（乾土基準）")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    no3_n = st.number_input(
-        "硝酸態窒素（NO₃-N）",
-        min_value=0.0,
-        step=0.1,
-        help="mg/100g 乾土"
-    )
-
-    nh4_n = st.number_input(
-        "アンモニア態窒素（NH₄-N）",
-        min_value=0.0,
-        step=0.1,
-        help="mg/100g 乾土"
-    )
-
-with col2:
-    p2o5 = st.number_input(
-        "可給態リン酸（P₂O₅）",
-        min_value=0.0,
-        step=0.1,
-        help="mg/100g 乾土"
-    )
-
-    k2o = st.number_input(
-        "交換性カリ（K₂O）",
-        min_value=0.0,
-        step=0.1,
-        help="mg/100g 乾土"
-    )
-    ca = st.number_input(
-        "カルシウム（CaO）",
-        min_value=0.0,
-        step=0.1,
-        help="mg/100g 乾土"
-    )
-    mg = st.number_input(
-        "マグネシウム（MgO）",
-        min_value=0.0,
-        step=0.1,
-        help="mg/100g 乾土"
-    )
-
-values = {
-    "N": no3_n,
-    "P": p2o5,
-    "K": k2o,
-}
-
-
-
-
-# Ca:Mg 比（安全計算のみ ── 表示はセクション3で行う）
-if mg > 0:
-    ca_mg_ratio = ca / mg
-
-    if ca_mg_ratio >= 10:
-        comment_key = "high"
-    elif ca_mg_ratio >= 3:
-        comment_key = "balanced"
-    else:
-        comment_key = "low"
-
-else:
-    ca_mg_ratio = None
-
-st.subheader("3. 土壌分析値の評価")
-
-col1, col2 = st.columns(2)
-
-# ---- 左列：N / P / K ----
-with col1:
-    for elem, cfg in ELEMENTS.items():
-        render_soil_eval(
-            elem,
-            values[elem],
-            cfg["mlsn"],
-            cfg["slan"],
-        )
-
-# ===== 月別施肥計画（N・P・K 統合） =====
-
-monthly_all = {}
-
-for elem in ["N", "P", "K"]:
-    if elem in fert_results:
-        plan = split_by_month(fert_results[elem], elem)
-        for month, kg in plan.items():
-            if month not in monthly_all:
-                monthly_all[month] = {"N": 0.0, "P": 0.0, "K": 0.0}
-            monthly_all[month][elem] = kg
-
-if monthly_all:
-    # 全12ヶ月分を明示的に 1〜12 順で構築
-    all_months_str = [str(m) for m in range(1, 13)]
-    rows = []
-    for m_str in all_months_str:
-        row = monthly_all.get(m_str, {"N": 0.0, "P": 0.0, "K": 0.0})
-        rows.append(row)
-    df_all = pd.DataFrame(rows, index=MONTHS_LABEL).fillna(0)
-
-    st.subheader("月別施肥計画（N・P・K）")
-    st.caption("※ 単位：kg / 10a（不足分を月別に配分した目安）")
-    st.dataframe(df_all)
-
-    # ===== CSV / Excel ダウンロード =====
-    export_rows = []
-    for m in range(1, 13):
-        m_str = str(m)
-        gp_val = round(monthly_gp.get(m_str, 0.0), 2)
-        dist_coeff = round(monthly_dist_ratios[m - 1], 3)
-
-        n_kgha = round(monthly_all.get(m_str, {}).get("N", 0.0), 2)
-        p_kgha = round(monthly_all.get(m_str, {}).get("P", 0.0), 2)
-        k_kgha = round(monthly_all.get(m_str, {}).get("K", 0.0), 2)
-
-        export_rows.append({
-            "月": f"{m}月",
-            "GP": gp_val,
-            "配分係数": dist_coeff,
-            "N (kg/ha)": n_kgha,
-            "P (kg/ha)": p_kgha,
-            "K (kg/ha)": k_kgha,
-            "N (g/㎡)": round(n_kgha * 0.1, 2),
-            "P (g/㎡)": round(p_kgha * 0.1, 2),
-            "K (g/㎡)": round(k_kgha * 0.1, 2),
-        })
-
-    export_rows.append({
-        "月": "年間合計",
-        "GP": "",
-        "配分係数": "",
-        "N (kg/ha)": round(sum(r["N (kg/ha)"] for r in export_rows), 2),
-        "P (kg/ha)": round(sum(r["P (kg/ha)"] for r in export_rows), 2),
-        "K (kg/ha)": round(sum(r["K (kg/ha)"] for r in export_rows), 2),
-        "N (g/㎡)": round(sum(r["N (g/㎡)"] for r in export_rows), 2),
-        "P (g/㎡)": round(sum(r["P (g/㎡)"] for r in export_rows), 2),
-        "K (g/㎡)": round(sum(r["K (g/㎡)"] for r in export_rows), 2),
-    })
-
-    df_export = pd.DataFrame(export_rows)
-
-    # CSV（BOM付きUTF-8で Excel でも文字化けしない）
-    csv_data = df_export.to_csv(index=False, encoding="utf-8-sig")
-
-    # Excel
-    excel_buffer = io.BytesIO()
-    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-        df_export.to_excel(writer, index=False, sheet_name="施肥設計")
-    excel_data = excel_buffer.getvalue()
-
-    col_dl1, col_dl2 = st.columns(2)
-    with col_dl1:
-        st.download_button(
-            label="📥 CSVダウンロード",
-            data=csv_data,
-            file_name="施肥設計.csv",
-            mime="text/csv",
-        )
-    with col_dl2:
-        st.download_button(
-            label="📥 Excelダウンロード",
-            data=excel_data,
-            file_name="施肥設計.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-# ---- 右列：Ca / Mg ----
-with col2:
-    render_soil_eval("Ca", ca, 100.0, 200.0)
-    render_soil_eval("Mg", mg, 2.0, 4.0)
-
-    render_ca_mg_ratio(ca, mg)
-
-# ===== 設計思想まとめ =====
-st.markdown("---")
-st.subheader("設計思想について")
-
-st.markdown("""
 本アプリは、芝生管理における施肥設計を
 数値を自動計算するためのツールではなく、
 判断を整理するための支援ツールとして設計されています。
@@ -907,8 +209,8 @@ GPは、
 生育の強弱や季節の流れを把握するための目安です。
 """)
 
-st.markdown("#### GPと施肥配分の考え方")
-st.markdown("""
+    st.markdown("#### GPと施肥配分の考え方")
+    st.markdown("""
 施肥設計において重要なのは、
 年間施肥量そのものよりも
 どの時期に配分するかという考え方です。
@@ -923,8 +225,8 @@ GPが0.2を超える期間を
 過剰な成長を避ける配分となります。
 """)
 
-st.markdown("#### 春重点配分について")
-st.markdown("""
+    st.markdown("#### 春重点配分について")
+    st.markdown("""
 春重点配分とは、
 春から初夏にかけての生育立ち上がり期に
 年間施肥量の一定割合を配分する考え方です。
@@ -938,8 +240,8 @@ st.markdown("""
 選択することを前提としています。
 """)
 
-st.markdown("#### 最後に")
-st.markdown("""
+    st.markdown("#### 最後に")
+    st.markdown("""
 本アプリは、
 施肥の正解を提示するものではありません。
 
@@ -951,9 +253,8 @@ st.markdown("""
 調整してください。
 """)
 
-# ===== 用語ガイド =====
-st.markdown("---")
-st.markdown("""
+    st.markdown("---")
+    st.markdown("""
 ### 📘 用語ガイド
 
 **MLSN（Minimum Level for Sustainable Nutrition）**  
@@ -963,17 +264,493 @@ st.markdown("""
 **SLAN（Sufficiency Level of Available Nutrients）**  
 芝生が十分に生育可能とされる養分水準。
 
-本アプリでは、選択した目標基準に基づき不足量を算出し、
-年間施肥計画を月別に配分しています。
+本アプリでは、土壌目標水準（MSLN〜SLAN）で年間設計量を決め、
+**GP と配分方法（春重点など）** で月別に配分しています。
+土壌が不足の要素は不足分を、適正の要素は年間設計量を月別表に示します。
 """)
 
-# ===== フッター =====
+
+def render_ca_mg_ratio(ratio: float | None, comment: str) -> None:
+    if ratio is None:
+        st.markdown("""
+**Ca : Mg 比**
+- Ca : Mg = 不明
+- 設計上の考え方：Mg が未測定のため、推定モードで評価します。
+""")
+        return
+    st.markdown(f"""
+**Ca : Mg 比**
+- Ca : Mg = {ratio:.1f}
+**設計上の考え方**
+{comment}
+""")
+
+
+def _run_gp_calculation(
+    cookies,
+    turf_type: str,
+    management_target: str,
+    latitude: float,
+    longitude: float,
+    allocation_method: str,
+) -> None:
+    with st.spinner(
+        "NASA POWER から昨年の月別気温を取得し、GP を計算しています。"
+        " **5〜15 秒かかることがあります。**"
+    ):
+        try:
+            gp = compute_gp_distribution_from_nasa(
+                turf_type,
+                management_target,
+                latitude,
+                longitude,
+                allocation_method,
+            )
+            st.session_state["gp_result"] = gp
+            st.session_state["gp_snapshot"] = {
+                "lat": latitude,
+                "lon": longitude,
+                "turf": turf_type,
+            }
+            st.session_state["nasa_error"] = None
+            st.session_state["design_result"] = None
+            save_prefs_to_cookies(cookies, latitude, longitude, turf_type)
+            st.rerun()
+        except NasaPowerError as exc:
+            st.session_state["nasa_error"] = str(exc)
+            st.session_state["gp_result"] = None
+            st.session_state["gp_snapshot"] = None
+
+
+st.set_page_config(
+    page_title="芝しごと・施肥設計ナビ",
+    page_icon="🌱",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+_inject_google_analytics()
+
+# 旧実装で session_state に保持していた CookieManager は削除
+st.session_state.pop("_fert_cookie_manager", None)
+
+cookies = create_cookie_manager()
+if not cookies.ready():
+    st.info("設定を読み込んでいます…")
+    st.stop()
+
+css_path = os.path.join(os.path.dirname(__file__), "style.css")
+with open(css_path, encoding="utf-8") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+for key, default in (
+    ("gp_result", None),
+    ("gp_snapshot", None),
+    ("design_result", None),
+    ("nasa_error", None),
+):
+    st.session_state.setdefault(key, default)
+
+for key, default in (
+    ("soil_no3", 0.0),
+    ("soil_nh4", 0.0),
+    ("soil_p2o5", 0.0),
+    ("soil_k2o", 0.0),
+    ("soil_ca", 0.0),
+    ("soil_mg", 0.0),
+    ("pdf_extract", None),
+    ("pdf_extract_error", None),
+):
+    st.session_state.setdefault(key, default)
+
+if "prefs_initialized" not in st.session_state:
+    lat, lon, tidx = load_prefs_from_cookies(cookies, TURF_OPTIONS)
+    st.session_state["input_lat"] = lat
+    st.session_state["input_lon"] = lon
+    st.session_state["turf_index"] = tidx
+    st.session_state["prefs_initialized"] = True
+
+apply_geolocation_from_query()
+
+st.title("芝しごと・施肥設計ナビ")
+st.markdown(
+    '<div class="subtitle">— グリーンキーパーのための土壌分析ベース施肥設計 —</div>',
+    unsafe_allow_html=True,
+)
+st.caption("操作の流れ・進行状況は **左のサイドバー** に常時表示されます。")
+
+def _compute_step(show_gp: bool, gp_calculated: bool) -> int:
+    """
+    進行ステップ（1〜5）
+    1: 基本条件 → 2: GP計算 → 3: 土壌入力 → 4: 施肥設計 → 5: 出力
+    """
+    if st.session_state.get("design_result"):
+        return 5
+    if show_gp:
+        return 3
+    if gp_calculated:
+        return 2
+    return 1
+
+
+def render_workflow_steps(step: int) -> None:
+    """左サイドバー用。メインをスクロールしても常に見える。"""
+    steps = [
+        "① 基本条件",
+        "② GP計算",
+        "③ 土壌入力",
+        "④ 施肥設計",
+        "⑤ 出力",
+    ]
+    for i, label in enumerate(steps, start=1):
+        if i < step:
+            st.markdown(f'<p class="workflow-step-done">✅ {label}</p>', unsafe_allow_html=True)
+        elif i == step:
+            st.markdown(
+                f'<p class="workflow-step-current">▶ {label}（いまここ）</p>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(f'<p class="workflow-step-todo">⚪ {label}</p>', unsafe_allow_html=True)
+
+_BANNER_PR_URL = "https://www.turf-tools.jp/services-4"
+banner_pr = os.path.join(os.path.dirname(__file__), "banner_pr_size1.png")
+
+
+def _img_to_base64(path: str) -> str:
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
+def _linked_png_banner_markup(path: str, url: str, img_alt: str, w: int, h: int) -> str:
+    if not os.path.exists(path):
+        return ""
+    b64 = _img_to_base64(path)
+    return (
+        f'<a href="{url}" target="_blank" rel="noopener noreferrer">'
+        f'<img src="data:image/png;base64,{b64}" alt="{img_alt}" '
+        f'width="{w}" height="{h}" style="width:{w}px;height:{h}px;display:block;" /></a>'
+    )
+
+
+if os.path.exists(banner_pr):
+    b64 = _img_to_base64(banner_pr)
+    st.markdown(
+        f'<a href="{_BANNER_PR_URL}" target="_blank">'
+        f'<img src="data:image/png;base64,{b64}" alt="PR" '
+        f'style="max-width:100%;display:block;" /></a>',
+        unsafe_allow_html=True,
+    )
+
+_blog_banner_parts: list[str] = []
+for url, path, img_alt in (
+    ("https://www.turf-tools.jp/blog", "bloglink.png", "ブログ"),
+    (
+        "https://www.youtube.com/channel/UCSRU0zk4Fj1ETWqMRlJDPJQ",
+        "youtubelink.png",
+        "YouTube",
+    ),
+):
+    p = os.path.join(os.path.dirname(__file__), path)
+    html = _linked_png_banner_markup(p, url, img_alt, 300, 100)
+    if html:
+        _blog_banner_parts.append(html)
+if _blog_banner_parts:
+    st.markdown(
+        '<div style="display:flex;flex-direction:row;flex-wrap:nowrap;'
+        'gap:4px;align-items:flex-start;width:fit-content;">'
+        + "".join(_blog_banner_parts)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+st.markdown("## 基本条件（設計前提）")
+
+with st.container():
+    if "input_turf" not in st.session_state:
+        st.session_state["input_turf"] = TURF_OPTIONS[
+            st.session_state.get("turf_index", 0)
+        ]
+    turf_type = st.selectbox("芝種", TURF_OPTIONS, key="input_turf")
+    management_target = st.selectbox(
+        "管理対象",
+        ["競技場", "ゴルフグリーン", "フェアウェイ"],
+    )
+    _geo_success = st.session_state.pop("geolocation_success_msg", None)
+    if _geo_success:
+        st.success(_geo_success)
+
+    col_geo1, col_geo2, col_geo3 = st.columns([1, 1, 0.9])
+    # 位置情報の反映は緯度・経度ウィジェットより先に実行する（同一ラン内の session_state 更新制約）
+    with col_geo3:
+        st.markdown("<div style='height:1.75rem'></div>", unsafe_allow_html=True)
+        render_geolocation_trigger()
+    with col_geo1:
+        latitude = st.number_input(
+            "緯度",
+            min_value=20.0,
+            max_value=50.0,
+            step=0.1,
+            key="input_lat",
+        )
+    with col_geo2:
+        longitude = st.number_input(
+            "経度",
+            min_value=120.0,
+            max_value=155.0,
+            step=0.1,
+            key="input_lon",
+        )
+
+with st.container():
+    allocation_method = st.radio(
+        "🌱 配分方法（GP基準）",
+        DIST_OPTIONS,
+        index=DIST_OPTIONS.index("春重点50"),
+        format_func=lambda x: DIST_LABELS.get(x, x),
+    )
+    msl_slan_position = st.selectbox(
+        "🎯 土壌目標水準の選択",
+        ["下限寄り", "中央", "上限寄り"],
+        index=1,
+        format_func=lambda x: {
+            "下限寄り": "下限寄り（MLSN重視）",
+            "中央": "中央",
+            "上限寄り": "上限寄り（SLAN重視）",
+        }.get(x, x),
+    )
+    st.caption(
+        "土壌が適正なときの **年間施肥量（MSLN/SLAN）** の位置、"
+        "不足時の補正目標にも用います。"
+    )
+
+if st.session_state.get("gp_result") and not _snapshot_matches(
+    latitude, longitude, turf_type
+):
+    _clear_gp_and_design()
+
+col_gp1, col_gp2 = st.columns([1, 1])
+with col_gp1:
+    gp_clicked = st.button(
+        "📈 GP を計算する",
+        type="primary",
+        help="NASA POWER の昨年の月別気温から GP を算出します。",
+    )
+with col_gp2:
+    retry_clicked = bool(
+        st.session_state.get("nasa_error")
+        and st.button("🔄 再試行")
+    )
+
+if gp_clicked or retry_clicked:
+    _run_gp_calculation(
+        cookies,
+        turf_type,
+        management_target,
+        latitude,
+        longitude,
+        allocation_method,
+    )
+
+if st.session_state.get("nasa_error"):
+    st.error(f"GP の計算に失敗しました: {st.session_state['nasa_error']}")
+
+gp_result = st.session_state.get("gp_result")
+show_gp = gp_result is not None and _snapshot_matches(latitude, longitude, turf_type)
+
+if show_gp:
+    year = gp_result.temperature_year or last_calendar_year()
+    st.subheader("Growth Potential（GP）")
+    st.caption(
+        f"NASA POWER の **{year}年（1〜12月）** の月平均気温（T2M）と、"
+        "芝種別の気温応答関数から GP を算出しています（0〜1）。"
+    )
+
+    df_gp = pd.DataFrame(gp_result.gp_chart_series, index=MONTHS_LABEL).reindex(
+        MONTHS_LABEL
+    )
+    df_plot = df_gp.reset_index()
+    df_plot.columns = ["月"] + list(df_gp.columns)
+    df_long = df_plot.melt(id_vars="月", var_name="系列", value_name="GP")
+
+    gp_chart = (
+        alt.Chart(df_long)
+        .mark_line(point=True, interpolate="natural")
+        .encode(
+            x=alt.X("月:N", sort=MONTHS_LABEL, title="月"),
+            y=alt.Y("GP:Q", scale=alt.Scale(domain=[0, 1]), title="Growth Potential"),
+            color=alt.Color("系列:N", title=""),
+        )
+        .properties(height=350)
+    )
+    st.altair_chart(gp_chart, use_container_width=True)
+    st.dataframe(df_gp.T.style.format("{:.2f}"), use_container_width=True)
+
+    if gp_result.monthly_temperatures_c:
+        st.caption(
+            "参考: 月平均気温（℃） "
+            + " / ".join(
+                f"{m}月 {t:.1f}"
+                for m, t in zip(range(1, 13), gp_result.monthly_temperatures_c)
+            )
+        )
+
+    with st.expander("GPの設計思想について"):
+        st.markdown("""
+**Growth Potential（GP）** は気温に対する生育応答を 0〜1 で表した指標です。
+本画面では NASA POWER の月平均気温に芝種別応答関数を適用しています。
+**WOS** は寒地型・暖地型の季節的な主役交代（重み付き合成）で算出します。
+""")
+
+    st.subheader("2. 土壌分析値（mg/100g）")
+    st.caption("※ 最新の土壌分析結果を入力してください（乾土基準）")
+
+    render_pdf_soil_importer()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        no3_n = st.number_input(
+            "硝酸態窒素（NO₃-N）",
+            min_value=0.0,
+            step=0.1,
+            key="soil_no3",
+        )
+        nh4_n = st.number_input(
+            "アンモニア態窒素（NH₄-N）",
+            min_value=0.0,
+            step=0.1,
+            key="soil_nh4",
+        )
+    with col2:
+        p2o5 = st.number_input(
+            "可給態リン酸（P₂O₅）",
+            min_value=0.0,
+            step=0.1,
+            key="soil_p2o5",
+        )
+        k2o = st.number_input(
+            "交換性カリ（K₂O）",
+            min_value=0.0,
+            step=0.1,
+            key="soil_k2o",
+        )
+        ca = st.number_input(
+            "カルシウム（CaO）",
+            min_value=0.0,
+            step=0.1,
+            key="soil_ca",
+        )
+        mg = st.number_input(
+            "マグネシウム（MgO）",
+            min_value=0.0,
+            step=0.1,
+            key="soil_mg",
+        )
+
+    _ = nh4_n
+    soil_values = {"N": no3_n, "P": p2o5, "K": k2o, "Ca": ca, "Mg": mg}
+
+    st.caption("次の操作: 土壌値を入力し、下の **「🌱 施肥設計を実行する」** を押してください。")
+
+    if st.button(
+        "🌱 施肥設計を実行する",
+        type="primary",
+        help="土壌評価と N・P・K の月別配分を計算します。",
+    ):
+        inputs = DesignInputs(
+            turf_type=turf_type,
+            management_target=management_target,
+            latitude=latitude,
+            longitude=longitude,
+            allocation_method=allocation_method,
+            soil_target_position=msl_slan_position,
+            soil=soil_values,
+        )
+        st.session_state["design_result"] = run_design_with_gp(inputs, gp_result)
+        st.rerun()
+
+    design = st.session_state.get("design_result")
+    if design:
+        st.subheader("3. 土壌分析値の評価")
+        col1, col2 = st.columns(2)
+        with col1:
+            for elem in ("N", "P", "K"):
+                render_soil_eval(design.soil_evaluations[elem])
+
+        monthly_all = design.monthly_fertilizer_plan
+        st.subheader("月別施肥計画（N・P・K）")
+        annual = design.annual_nutrients
+        if design.plan_mode == "mixed":
+            st.info(
+                "**適正** の要素（N・P・K）は MSLN/SLAN の年間設計量を GP 配分で月別表示、"
+                "**不足** の要素は土壌不足分（要素量）を GP 配分で月別表示しています。"
+            )
+            st.caption("※ 単位：g / ㎡（要素量）")
+        elif design.plan_mode == "annual_gp" and annual:
+            n_ann = annual["N"]["annual_value"]
+            st.info(
+                "N・P・K は土壌目安範囲内（適正）のため、"
+                f"**MSLN/SLAN 年間設計量（N {n_ann*0.1:.1f} g/㎡ など）** を "
+                "画面上部の **GP 配分係数** で月別に配分しています。"
+            )
+            st.caption("※ 単位：g / ㎡（要素量。年間設計量 × 月別配分係数）")
+
+        rows = [
+            monthly_all.get(str(m), {"N": 0.0, "P": 0.0, "K": 0.0})
+            for m in range(1, 13)
+        ]
+        df_all = pd.DataFrame(rows, index=MONTHS_LABEL).fillna(0)
+        st.dataframe(df_all)
+
+        if design.export_rows:
+            df_export = pd.DataFrame(design.export_rows)
+            csv_data = df_export.to_csv(index=False, encoding="utf-8-sig")
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+                df_export.to_excel(writer, index=False, sheet_name="施肥設計")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.download_button(
+                    "📥 CSVダウンロード", csv_data, "施肥設計.csv", "text/csv"
+                )
+            with c2:
+                st.download_button(
+                    "📥 Excelダウンロード",
+                    excel_buffer.getvalue(),
+                    "施肥設計.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
+        with col2:
+            render_soil_eval(design.soil_evaluations["Ca"])
+            render_soil_eval(design.soil_evaluations["Mg"])
+            if design.ca_mg:
+                render_ca_mg_ratio(design.ca_mg.ratio, design.ca_mg.comment)
+
+        render_design_philosophy_guide()
+    else:
+        st.info("次の操作: 土壌値を入力し、**「🌱 施肥設計を実行する」** を押してください。")
+
+else:
+    st.info(
+        "次の操作: 上の **「📈 GP を計算する」** を押してください。"
+        "（GP を計算すると、土壌分析値の入力欄が表示されます）"
+    )
+
+# 手順・進行状況（サイドバー＝スクロールしても常時表示）
+_gp_for_bar = st.session_state.get("gp_result")
+_gp_calculated = _gp_for_bar is not None
+_show_gp_for_bar = _gp_calculated and _snapshot_matches(
+    latitude, longitude, turf_type
+)
+with st.sidebar:
+    st.markdown("### 操作の流れ")
+    render_workflow_steps(_compute_step(_show_gp_for_bar, _gp_calculated))
+
 st.markdown("---")
-st.caption("Soil-Based Fertilization Planner | 2026/2/13版")
+st.caption("Soil-Based Fertilization Planner | v.2.0.0")
 st.markdown("""
-<div style="text-align: center; padding: 1rem 0; color: #666;">
-    <a href="https://www.turf-tools.jp/" target="_blank" style="text-decoration: none; color: #666;">
-        &copy;グロウアンドプログレス
-    </a>
-</div>
+<div style="text-align:center;padding:1rem 0;color:#666;">
+<a href="https://www.turf-tools.jp/" target="_blank" style="color:#666;text-decoration:none;">
+&copy;グロウアンドプログレス</a></div>
 """, unsafe_allow_html=True)

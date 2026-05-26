@@ -1,6 +1,18 @@
 .stApp {
     background-color: #f7f9f6;
   }
+
+/* サイドバー内の操作手順（スクロールしても常に表示） */
+section[data-testid="stSidebar"] .workflow-step-current {
+    font-weight: 700;
+    color: #0f766e;
+  }
+section[data-testid="stSidebar"] .workflow-step-done {
+    color: #166534;
+  }
+section[data-testid="stSidebar"] .workflow-step-todo {
+    color: #64748b;
+  }
 .subtitle {
     font-size: 0.95rem;
     color: #555;

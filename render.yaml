@@ -1,0 +1,16 @@
+# Render.com Web Service（Streamlit）
+# https://render.com/docs/deploy-streamlit
+services:
+  - type: web
+    name: fertilization-design
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # Render ダッシュボードで設定（未設定時は GA 無効）
+      - key: GA_MEASUREMENT_ID
+        sync: false

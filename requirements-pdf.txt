@@ -1,0 +1,5 @@
+# PDF 機能を復活させる場合のみ追加インストール
+-r requirements.txt
+plotly>=5.17.0
+jinja2>=3.1.2
+# xhtml2pdf / kaleido 等は generator.py の実装に合わせて追加
