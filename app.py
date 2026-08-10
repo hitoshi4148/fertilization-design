@@ -324,7 +324,7 @@ def _run_gp_calculation(
 
 st.set_page_config(
     page_title="芝しごと・施肥設計ナビ",
-    page_icon="🌱",
+    page_icon=os.path.join(os.path.dirname(__file__), "grow-and-progress-logo.png"),
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -414,7 +414,6 @@ def render_workflow_steps(step: int) -> None:
             st.markdown(f'<p class="workflow-step-todo">⚪ {label}</p>', unsafe_allow_html=True)
 
 _BANNER_PR_URL = "https://www.turf-tools.jp/services-4"
-banner_pr = os.path.join(os.path.dirname(__file__), "banner_pr_size1.png")
 
 
 def _img_to_base64(path: str) -> str:
@@ -422,28 +421,23 @@ def _img_to_base64(path: str) -> str:
         return base64.b64encode(f.read()).decode()
 
 
-def _linked_png_banner_markup(path: str, url: str, img_alt: str, w: int, h: int) -> str:
+def _linked_png_banner_markup(path: str, url: str, img_alt: str) -> str:
     if not os.path.exists(path):
         return ""
     b64 = _img_to_base64(path)
     return (
-        f'<a href="{url}" target="_blank" rel="noopener noreferrer">'
+        f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+        f'style="display:flex;align-items:center;justify-content:center;'
+        f'min-height:76px;padding:4px;line-height:0;border-radius:8px;">'
         f'<img src="data:image/png;base64,{b64}" alt="{img_alt}" '
-        f'width="{w}" height="{h}" style="width:{w}px;height:{h}px;display:block;" /></a>'
+        f'style="display:block;width:100%;max-width:240px;height:76px;'
+        f'object-fit:contain;" /></a>'
     )
 
 
-if os.path.exists(banner_pr):
-    b64 = _img_to_base64(banner_pr)
-    st.markdown(
-        f'<a href="{_BANNER_PR_URL}" target="_blank">'
-        f'<img src="data:image/png;base64,{b64}" alt="PR" '
-        f'style="max-width:100%;display:block;" /></a>',
-        unsafe_allow_html=True,
-    )
-
-_blog_banner_parts: list[str] = []
+_banner_parts: list[str] = []
 for url, path, img_alt in (
+    (_BANNER_PR_URL, "banner_pr_size1.png", "PR"),
     ("https://www.turf-tools.jp/blog", "bloglink.png", "ブログ"),
     (
         "https://www.youtube.com/channel/UCSRU0zk4Fj1ETWqMRlJDPJQ",
@@ -451,15 +445,16 @@ for url, path, img_alt in (
         "YouTube",
     ),
 ):
-    p = os.path.join(os.path.dirname(__file__), path)
-    html = _linked_png_banner_markup(p, url, img_alt, 300, 100)
+    html = _linked_png_banner_markup(
+        os.path.join(os.path.dirname(__file__), path), url, img_alt
+    )
     if html:
-        _blog_banner_parts.append(html)
-if _blog_banner_parts:
+        _banner_parts.append(html)
+if _banner_parts:
     st.markdown(
-        '<div style="display:flex;flex-direction:row;flex-wrap:nowrap;'
-        'gap:4px;align-items:flex-start;width:fit-content;">'
-        + "".join(_blog_banner_parts)
+        '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));'
+        'gap:8px;max-width:720px;margin:0 auto 16px;align-items:center;">'
+        + "".join(_banner_parts)
         + "</div>",
         unsafe_allow_html=True,
     )
@@ -748,9 +743,48 @@ with st.sidebar:
     render_workflow_steps(_compute_step(_show_gp_for_bar, _gp_calculated))
 
 st.markdown("---")
-st.caption("Soil-Based Fertilization Planner | v.2.0.0")
-st.markdown("""
+_SHIBA_SHIGOTO_APPS = (
+    ("ポータル", "https://www.turf-tools.jp/portal/"),
+    ("ターフプール", "https://turfpool.onrender.com/"),
+    ("楽RAC農薬ローテ", "https://www.turf-tools.jp/portal/rac/"),
+    ("病害リスク予報", "https://www.turf-tools.jp/portal/risk/"),
+    ("AI質問箱", "https://turf-advisor.onrender.com/"),
+    ("病害画像診断AI", "https://www.turf-tools.jp/portal/diagnosis/"),
+    ("ピンポイント天気で芝しごと", "https://www.turf-tools.jp/portal/spray/"),
+    ("積算温度追跡マップ", "https://turfmap.onrender.com/"),
+    ("温量指数気候区分マップ", "https://climate-map-x30t.onrender.com/"),
+    ("クレームサバイバル", "https://claim-survival.onrender.com/"),
+)
+_footer_app_links = " · ".join(
+    f'<a href="{href}" target="_blank" rel="noopener noreferrer" '
+    f'style="color:#666;text-decoration:underline;text-underline-offset:3px;">{label}</a>'
+    for label, href in _SHIBA_SHIGOTO_APPS
+)
+
+_footer_logo = os.path.join(os.path.dirname(__file__), "grow-and-progress-logo.png")
+_footer_logo_html = ""
+if os.path.exists(_footer_logo):
+    _footer_logo_b64 = _img_to_base64(_footer_logo)
+    _footer_logo_html = (
+        f'<img src="data:image/png;base64,{_footer_logo_b64}" '
+        'alt="グロウアンドプログレス" width="80" height="80" '
+        'style="width:80px;height:80px;object-fit:contain;display:block;margin:0 auto 8px;" />'
+    )
+st.markdown(
+    f"""
 <div style="text-align:center;padding:1rem 0;color:#666;">
-<a href="https://www.turf-tools.jp/" target="_blank" style="color:#666;text-decoration:none;">
-&copy;グロウアンドプログレス</a></div>
-""", unsafe_allow_html=True)
+  <nav aria-label="芝しごとアプリ" style="max-width:720px;margin:0 auto 1rem;line-height:1.8;font-size:0.8rem;">
+    {_footer_app_links}
+  </nav>
+  <a href="https://www.turf-tools.jp/" target="_blank" rel="noopener noreferrer"
+     style="color:#666;text-decoration:none;display:inline-block;">
+    {_footer_logo_html}
+    <span style="display:block;">&copy;グロウアンドプログレス</span>
+  </a>
+  <p style="margin:12px 0 0;font-size:0.8rem;color:#888;">
+    Soil-Based Fertilization Planner | v.2.0.1
+  </p>
+</div>
+""",
+    unsafe_allow_html=True,
+)
