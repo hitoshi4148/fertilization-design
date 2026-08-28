@@ -745,7 +745,7 @@ with st.sidebar:
 st.markdown("---")
 _SHIBA_SHIGOTO_APPS = (
     ("ポータル", "https://www.turf-tools.jp/portal/"),
-    ("ターフプール", "https://turfpool.onrender.com/"),
+    ("ターフプール", "https://www.turf-tools.jp/portal/turfpool/"),
     ("楽RAC農薬ローテ", "https://www.turf-tools.jp/portal/rac/"),
     ("病害リスク予報", "https://www.turf-tools.jp/portal/risk/"),
     ("AI質問箱", "https://turf-advisor.onrender.com/"),
@@ -782,7 +782,7 @@ st.markdown(
     <span style="display:block;">&copy;グロウアンドプログレス</span>
   </a>
   <p style="margin:12px 0 0;font-size:0.8rem;color:#888;">
-    Soil-Based Fertilization Planner | v.2.0.1
+    Soil-Based Fertilization Planner | v.2.0.2
   </p>
 </div>
 """,
