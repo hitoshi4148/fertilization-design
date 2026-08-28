@@ -1,8 +1,12 @@
 # 芝しごと・施肥設計ナビ
 
-芝生管理（ターフマネジメント）分野の業務支援 Web アプリケーション（**v2.0.2**）。
+芝生管理（ターフマネジメント）分野の業務支援 Web アプリケーション（**v2.0.3**）。
 
 土壌診断値と管理方針をもとに、**NASA POWER** の気温データから算出した **Growth Potential（GP）** と、**MSLN/SLAN** に基づく年間施肥設計・月別配分の目安を表示し、CSV / Excel でエクスポートできます。
+
+## v2.0.3 の主な変更点
+
+- **互換性**: Streamlit 1.62 以降で削除された `st.cache` により `streamlit-cookies-manager` が起動失敗する問題を修正（Cookie 読み書きの互換シム）
 
 ## v2.0.2 の主な変更点
 
@@ -185,6 +189,7 @@ GP を NASA 気温から先に計算する場合は `compute_gp_distribution_fro
 
 | バージョン | 概要 |
 |------------|------|
+| **2.0.3** | Streamlit 1.62+ と streamlit-cookies-manager の互換修正（Cookie 起動エラー） |
 | **2.0.2** | フッターのターフプールリンクを `https://www.turf-tools.jp/portal/turfpool/` に更新 |
 | **2.0.1** | フッターに芝しごとアプリリンク・ロゴ、ファビコン差し替え、バナーを1行3列に整理 |
 | **2.0.0** | NASA POWER 連動 GP、MSLN/SLAN 年間設計と GP 月別配分、g/㎡ 表示、土壌 PDF 読込（A/B/C）、段階 UI・サイドバー手順、Render デプロイ整備 |

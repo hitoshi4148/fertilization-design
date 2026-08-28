@@ -1,4 +1,5 @@
 streamlit>=1.30.0
+# streamlit-cookies-manager は st.cache 依存（Streamlit 1.62 で削除）。ui/prefs.py で st.cache_data へ互換。
 pandas>=2.1.0
 openpyxl>=3.1.0
 numpy>=1.24.0

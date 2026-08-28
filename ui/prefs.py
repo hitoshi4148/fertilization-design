@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING, Any, Tuple
 
 import streamlit as st
 
+# Streamlit 1.62+ で st.cache が削除。streamlit-cookies-manager が未更新のため互換。
+if not hasattr(st, "cache"):
+    st.cache = st.cache_data
+
 if TYPE_CHECKING:
     from streamlit_cookies_manager import CookieManager
 

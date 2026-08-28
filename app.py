@@ -782,7 +782,7 @@ st.markdown(
     <span style="display:block;">&copy;グロウアンドプログレス</span>
   </a>
   <p style="margin:12px 0 0;font-size:0.8rem;color:#888;">
-    Soil-Based Fertilization Planner | v.2.0.2
+    Soil-Based Fertilization Planner | v.2.0.3
   </p>
 </div>
 """,
