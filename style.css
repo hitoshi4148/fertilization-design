@@ -17,7 +17,32 @@ section[data-testid="stSidebar"] .workflow-step-todo {
     font-size: 0.95rem;
     color: #555;
     margin-top: -8px;
-    margin-bottom: 16px;
+    margin-bottom: 8px;
+  }
+.guide-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin: 0 0 16px;
+  }
+.guide-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #0f766e;
+    background: #fff;
+    border: 1px solid #99f6e4;
+    border-radius: 999px;
+    text-decoration: none;
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  }
+.guide-link:hover {
+    color: #fff;
+    background: #0f766e;
+    border-color: #0f766e;
   }
 .version {
     font-size: 0.8rem;
