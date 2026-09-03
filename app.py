@@ -754,7 +754,7 @@ _SHIBA_SHIGOTO_APPS = (
     ("ターフプール", "https://www.turf-tools.jp/portal/turfpool/"),
     ("楽RAC農薬ローテ", "https://www.turf-tools.jp/portal/rac/"),
     ("病害リスク予報", "https://www.turf-tools.jp/portal/risk/"),
-    ("AI質問箱", "https://turf-advisor.onrender.com/"),
+    ("AI相談室", "https://www.turf-tools.jp/aihelpdesk/"),
     ("病害画像診断AI", "https://www.turf-tools.jp/portal/diagnosis/"),
     ("ピンポイント天気で芝しごと", "https://www.turf-tools.jp/portal/spray/"),
     ("積算温度追跡マップ", "https://turfmap.onrender.com/"),
