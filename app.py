@@ -377,8 +377,9 @@ st.markdown(
     """
 <div class="subtitle">— グリーンキーパーのための土壌分析ベース施肥設計 —</div>
 <p class="guide-links">
-  <a class="guide-link" href="https://www.turf-tools.jp/post/%E3%80%8Cnasa-power%E5%AF%BE%E5%BF%9C%E3%80%8E%E8%8A%9D%E3%81%97%E3%81%94%E3%81%A8%E3%83%BB%E6%96%BD%E8%82%A5%E8%A8%AD%E8%A8%88%E3%83%8A%E3%83%93-v2-0-0%E3%80%8F%E5%85%AC%E9%96%8B%E3%80%8D" target="_blank" rel="noopener noreferrer">🆕 新しい解説</a>
-  <a class="guide-link" href="https://youtu.be/q8sQxeF9v9Q" target="_blank" rel="noopener noreferrer">▶ 解説動画</a>
+  <a class="guide-link" href="https://www.turf-tools.jp/%E8%A7%A3%E8%AA%AC-%E8%8A%9D%E3%81%97%E3%81%94%E3%81%A8-%E6%96%BD%E8%82%A5%E8%A8%AD%E8%A8%88%E3%83%8A%E3%83%93" target="_blank" rel="noopener noreferrer">【公式解説】</a>
+  <a class="guide-link" href="https://www.turf-tools.jp/post/%E3%80%8Cnasa-power%E5%AF%BE%E5%BF%9C%E3%80%8E%E8%8A%9D%E3%81%97%E3%81%94%E3%81%A8%E3%83%BB%E6%96%BD%E8%82%A5%E8%A8%AD%E8%A8%88%E3%83%8A%E3%83%93-v2-0-0%E3%80%8F%E5%85%AC%E9%96%8B%E3%80%8D" target="_blank" rel="noopener noreferrer">【新しい解説】</a>
+  <a class="guide-link" href="https://youtu.be/q8sQxeF9v9Q" target="_blank" rel="noopener noreferrer">【▶解説動画】</a>
 </p>
 """,
     unsafe_allow_html=True,
@@ -788,7 +789,7 @@ st.markdown(
     <span style="display:block;">&copy;グロウアンドプログレス</span>
   </a>
   <p style="margin:12px 0 0;font-size:0.8rem;color:#888;">
-    Soil-Based Fertilization Planner | v.2.0.3
+    Soil-Based Fertilization Planner | v.2.0.4
   </p>
 </div>
 """,
